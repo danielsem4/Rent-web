@@ -1,0 +1,32 @@
+// rent+ Prisma schema
+// learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  USER
+}
+
+// ─── User ────────────────────────────────────────────────
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([email])
+}
