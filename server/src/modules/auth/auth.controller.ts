@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { AuthService } from './auth.service';
-import type { LoginDto } from './auth.schema';
+import type { ChangePasswordDto, LoginDto } from './auth.schema';
 import {
   AUTH_COOKIE_NAME,
   AUTH_COOKIE_OPTIONS,
@@ -30,8 +30,8 @@ export function createAuthController(service: AuthService) {
 
     async refresh(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        const { userId, role } = req.currentUser!;
-        const { token } = service.refresh(userId, role);
+        const { userId, role, companyId } = req.currentUser!;
+        const { token } = service.refresh(userId, role, companyId);
         res.cookie(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
         res.json({ message: 'Token refreshed' });
       } catch (err) {
@@ -42,6 +42,15 @@ export function createAuthController(service: AuthService) {
     async logout(_req: Request, res: Response): Promise<void> {
       res.clearCookie(AUTH_COOKIE_NAME, AUTH_COOKIE_CLEAR_OPTIONS);
       res.json({ message: 'Logged out' });
+    },
+
+    async changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+      try {
+        await service.changePassword(req.currentUser!.userId, req.body as ChangePasswordDto);
+        res.json({ message: 'Password updated' });
+      } catch (err) {
+        next(err);
+      }
     },
   };
 }

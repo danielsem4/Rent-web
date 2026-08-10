@@ -68,11 +68,11 @@
   --input: oklch(0.373 0.034 259.733); /* #374151 gray-700 */
   --ring: oklch(0.623 0.214 259.815); /* #3b82f6 blue-500 */
 
-  --success: oklch(0.393 0.095 152.535 / 25%); /* #14532d green-900 @25% */
+  --success: oklch(0.393 0.095 152.535); /* #14532d green-900 */
   --success-foreground: oklch(0.792 0.209 151.711); /* #4ade80 green-400 */
-  --warning: oklch(0.408 0.123 38.172 / 25%); /* #7c2d12 orange-900 @25% */
+  --warning: oklch(0.408 0.123 38.172); /* #7c2d12 orange-900 */
   --warning-foreground: oklch(0.75 0.183 55.934); /* #fb923c orange-400 */
-  --danger: oklch(0.396 0.141 25.723 / 25%); /* #7f1d1d red-900 @25% */
+  --danger: oklch(0.396 0.141 25.723); /* #7f1d1d red-900 */
   --danger-foreground: oklch(0.704 0.191 22.216); /* #f87171 red-400 */
 
   --chart-1: oklch(0.488 0.243 264.376);

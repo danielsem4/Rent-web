@@ -57,6 +57,18 @@ axios singleton  →  api/<domain>Api.ts  →  react-query hooks  →  feature h
 - **Validation messages are i18n keys** (e.g. `login.errEmail`), resolved with `t()` at render.
 - **Tests colocated** as `*.test.ts(x)`, run with Vitest.
 
+## Responsive & mobile (MANDATORY)
+
+Every screen and component must be responsive and fully usable on mobile — from ~360px width up through desktop. This is not optional and applies to all new and modified UI.
+
+- **Mobile-first**: base (unprefixed) classes target small screens; layer up with `sm:` / `md:` / `lg:` prefixes. Never assume a desktop viewport.
+- **No fixed widths that overflow narrow viewports** — prefer `w-full` + `max-w-*` over `w-[Npx]`. The page body must never scroll horizontally.
+- **Reuse the mobile primitives already in the repo** instead of reinventing: `useIsMobile()` (`@/hooks/use-mobile`), `Sheet` for off-canvas panels, and `Sidebar` (`@/components/ui/sidebar`, collapses to a Sheet on mobile). The shadcn `Table` already wraps content in `overflow-x-auto` — keep wide tables inside it (or switch to a stacked/card layout on small screens).
+- **Toolbars / action rows** must wrap or stack on mobile (`flex-wrap`, or `flex-col sm:flex-row`) — never overflow.
+- **Touch targets ≥ 44px**; no hover-only interactions for essential actions.
+- **RTL-safe** (`he`/`ar`): use logical utilities (`ms-*`/`me-*`/`ps-*`/`pe-*`, `text-start`/`text-end`, `side` from `i18n.dir()`), never hardcoded left/right.
+- **Verify at 360px** before considering any UI done.
+
 ## Commands
 
 - `npm run dev` — Vite dev server on :5173, proxies `/api` → `http://localhost:5001` (the server).

@@ -6,6 +6,7 @@ import { AUTH_COOKIE_NAME } from '../utils/cookie';
 export interface JwtPayload {
   userId: number;
   role: string;
+  companyId: number;
 }
 
 declare global {
