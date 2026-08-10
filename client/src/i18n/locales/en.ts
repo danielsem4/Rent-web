@@ -9,6 +9,10 @@ const en = {
     subtitle: "Sign in to your account",
     email: "Email",
     password: "Password",
+    emailPlaceholder: "you@example.com",
+    passwordPlaceholder: "••••••••",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
     submit: "Sign in",
     errEmail: "A valid email is required",
     errPassword: "Password is required",
@@ -21,6 +25,10 @@ const en = {
   notFound: {
     title: "Page not found",
     back: "Go home",
+  },
+  error: {
+    title: "Something went wrong",
+    retry: "Back to login",
   },
 };
 

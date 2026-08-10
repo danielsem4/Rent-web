@@ -11,6 +11,10 @@ const ru: TranslationSchema = {
     subtitle: "Войдите в свою учётную запись",
     email: "Электронная почта",
     password: "Пароль",
+    emailPlaceholder: "you@example.com",
+    passwordPlaceholder: "••••••••",
+    showPassword: "Показать пароль",
+    hidePassword: "Скрыть пароль",
     submit: "Войти",
     errEmail: "Требуется корректный адрес электронной почты",
     errPassword: "Требуется пароль",
@@ -23,6 +27,10 @@ const ru: TranslationSchema = {
   notFound: {
     title: "Страница не найдена",
     back: "На главную",
+  },
+  error: {
+    title: "Что-то пошло не так",
+    retry: "Вернуться ко входу",
   },
 };
 

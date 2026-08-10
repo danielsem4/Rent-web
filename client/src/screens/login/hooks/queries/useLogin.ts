@@ -15,7 +15,7 @@ export function useLogin() {
     onSuccess: (user) => {
       setUser(user);
       queryClient.setQueryData(["auth", "me"], user);
-      void navigate("/home");
+      void navigate("/");
     },
   });
 }
