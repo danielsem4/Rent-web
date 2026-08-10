@@ -57,7 +57,7 @@ api.interceptors.response.use(
       processQueue(refreshError);
       useAuthStore.getState().logout();
       toast.error(i18n.t("common.sessionExpired"));
-      window.location.href = "/";
+      window.location.href = "/login";
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

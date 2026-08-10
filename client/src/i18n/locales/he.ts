@@ -11,6 +11,10 @@ const he: TranslationSchema = {
     subtitle: "התחברו לחשבון שלכם",
     email: "אימייל",
     password: "סיסמה",
+    emailPlaceholder: "you@example.com",
+    passwordPlaceholder: "••••••••",
+    showPassword: "הצג סיסמה",
+    hidePassword: "הסתר סיסמה",
     submit: "התחברות",
     errEmail: "נדרש אימייל תקין",
     errPassword: "נדרשת סיסמה",
@@ -23,6 +27,10 @@ const he: TranslationSchema = {
   notFound: {
     title: "הדף לא נמצא",
     back: "חזרה לדף הבית",
+  },
+  error: {
+    title: "משהו השתבש",
+    retry: "חזרה להתחברות",
   },
 };
 

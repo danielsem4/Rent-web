@@ -11,6 +11,10 @@ const ar: TranslationSchema = {
     subtitle: "سجّل الدخول إلى حسابك",
     email: "البريد الإلكتروني",
     password: "كلمة المرور",
+    emailPlaceholder: "you@example.com",
+    passwordPlaceholder: "••••••••",
+    showPassword: "إظهار كلمة المرور",
+    hidePassword: "إخفاء كلمة المرور",
     submit: "تسجيل الدخول",
     errEmail: "مطلوب بريد إلكتروني صالح",
     errPassword: "كلمة المرور مطلوبة",
@@ -23,6 +27,10 @@ const ar: TranslationSchema = {
   notFound: {
     title: "الصفحة غير موجودة",
     back: "العودة إلى الرئيسية",
+  },
+  error: {
+    title: "حدث خطأ ما",
+    retry: "العودة إلى تسجيل الدخول",
   },
 };
 

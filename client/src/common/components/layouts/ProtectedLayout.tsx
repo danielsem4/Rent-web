@@ -14,7 +14,7 @@ export default function ProtectedLayout() {
   const handleLogout = async () => {
     await authApi.logout().catch(() => undefined);
     logout();
-    void navigate("/");
+    void navigate("/login");
   };
 
   if (isLoading) {
@@ -26,7 +26,7 @@ export default function ProtectedLayout() {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   return (
@@ -35,10 +35,7 @@ export default function ProtectedLayout() {
       <aside className="hidden w-60 shrink-0 flex-col border-e bg-sidebar p-4 md:flex">
         <div className="mb-6 text-lg font-semibold">rent+</div>
         <nav className="flex flex-col gap-1 text-sm">
-          <a
-            href="/home"
-            className="rounded-md px-3 py-2 hover:bg-sidebar-accent"
-          >
+          <a href="/" className="rounded-md px-3 py-2 hover:bg-sidebar-accent">
             {t("home.title")}
           </a>
         </nav>
