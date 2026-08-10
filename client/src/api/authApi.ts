@@ -22,4 +22,11 @@ export const authApi = {
   async logout(): Promise<void> {
     await api.post("/auth/logout");
   },
+
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    await api.post("/auth/change-password", { currentPassword, newPassword });
+  },
 };

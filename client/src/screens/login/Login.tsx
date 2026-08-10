@@ -58,7 +58,7 @@ export default function Login() {
               <div className="relative">
                 <Mail
                   aria-hidden
-                  className="text-muted-foreground pointer-events-none absolute inset-s-4 top-1/2 size-4 -translate-y-1/2"
+                  className="text-muted-foreground pointer-events-none absolute start-4 top-1/2 size-4 -translate-y-1/2"
                 />
                 <Input
                   id="email"
@@ -82,7 +82,7 @@ export default function Login() {
               <div className="relative">
                 <Lock
                   aria-hidden
-                  className="text-muted-foreground pointer-events-none absolute inset-s-4 top-1/2 size-4 -translate-y-1/2"
+                  className="text-muted-foreground pointer-events-none absolute start-4 top-1/2 size-4 -translate-y-1/2"
                 />
                 <Input
                   id="password"
@@ -102,7 +102,7 @@ export default function Login() {
                       ? t("login.hidePassword")
                       : t("login.showPassword")
                   }
-                  className="text-muted-foreground hover:text-foreground absolute inset-e-4 top-1/2 -translate-y-1/2 transition-colors"
+                  className="text-muted-foreground hover:text-foreground absolute end-4 top-1/2 -translate-y-1/2 transition-colors"
                 >
                   {showPassword ? (
                     <EyeOff className="size-4" />

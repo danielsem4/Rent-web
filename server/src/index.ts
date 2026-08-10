@@ -6,6 +6,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { authRouter } from './modules/auth/auth.routes';
+import { propertyRouter } from './modules/property/property.routes';
+import { companyRouter } from './modules/company/company.routes';
 import { errorHandler } from './shared/middlewares/errorHandler';
 
 const app = express();
@@ -30,6 +32,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 // Module routes
 app.use('/api/auth', authRouter);
+app.use('/api/properties', propertyRouter);
+app.use('/api/companies', companyRouter);
 
 // Error handler (must be last)
 app.use(errorHandler);

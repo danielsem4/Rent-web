@@ -13,8 +13,22 @@ datasource db {
 
 enum Role {
   SUPER_ADMIN
-  ADMIN
-  USER
+  COMPANY_MANAGER
+  COMPANY_WORKER
+  RENTER
+}
+
+// ─── Company (tenant) ────────────────────────────────────
+// Root of multi-tenancy. Every domain row carries companyId
+// and repositories scope all queries by it (data isolation).
+
+model Company {
+  id         Int        @id @default(autoincrement())
+  name       String
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  users      User[]
+  properties Property[]
 }
 
 // ─── User ────────────────────────────────────────────────
@@ -24,9 +38,43 @@ model User {
   email        String   @unique
   passwordHash String
   name         String
-  role         Role     @default(USER)
+  role         Role
+  companyId    Int
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([email])
+  @@index([companyId])
+}
+
+// ─── Property (apartment) ────────────────────────────────
+
+model Property {
+  id            Int       @id @default(autoincrement())
+  companyId     Int
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // General
+  city          String
+  address       String
+  entryCode     String?
+  electricMeter String?
+  waterMeter    String?
+
+  // Original property owner
+  ownerName     String?
+  ownerPhone    String?
+
+  // Contract
+  contractStart DateTime?
+  contractEnd   DateTime?
+  monthlyRent   Int       @default(0) // whole currency units (single-currency MVP)
+  capacity      Int       @default(1) // total slots — powers occupied/capacity occupancy
+
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([companyId])
 }
