@@ -63,4 +63,4 @@ axios singleton  →  api/<domain>Api.ts  →  react-query hooks  →  feature h
 - `npm run build` — `tsc -b && vite build`.
 - `npm run lint` — ESLint. `npm test` — Vitest.
 
-Run the server (`../server`) alongside for a working login flow. Seeded dev user: `admin@rentplus.dev` / `password123`.
+Run the server (`../server`) alongside for a working login flow. Seeded dev user: `super@rentplus.dev` / `password123`.

@@ -4,6 +4,11 @@ const en = {
     loading: "Loading...",
     logout: "Log out",
   },
+  theme: {
+    toggle: "Toggle theme",
+    light: "Switch to light mode",
+    dark: "Switch to dark mode",
+  },
   login: {
     title: "Welcome to rent+",
     subtitle: "Sign in to your account",

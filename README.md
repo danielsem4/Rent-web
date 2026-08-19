@@ -22,7 +22,7 @@ cp .env.example .env          # then set DATABASE_URL + JWT_SECRET
 npm install
 npm run db:generate           # generate Prisma client
 npm run db:migrate            # create tables (needs a running Postgres)
-npm run db:seed               # seed dev user: admin@rentplus.dev / password123
+npm run db:seed               # seed dev user: super@rentplus.dev / password123
 npm run dev                   # http://localhost:5001
 ```
 
@@ -50,7 +50,34 @@ alongside it. Open http://localhost:5173 and sign in with the seeded credentials
 The client `axios` instance sends the cookie automatically (`withCredentials`) and, on a
 401, transparently calls `/auth/refresh` and retries before giving up and logging out.
 
+## Testing (server)
+
+Two independent suites:
+
+```bash
+cd server
+npm test                 # fast suite — Prisma fully mocked, no database needed
+npm run test:integration # integration suite — real PostgreSQL + real Prisma
+```
+
+The **integration suite** proves real multi-tenant isolation end-to-end (HTTP →
+authenticate → real DB → authorize → service → Prisma → PostgreSQL). It runs
+against a **dedicated test database**, never the dev DB:
+
+1. Add `TEST_DATABASE_URL` to `server/.env` — it **must** point at a separate,
+   clearly test-only database whose name contains `test` (e.g. `rentplus_test`).
+2. Create that database once (any method), e.g. `createdb rentplus_test`.
+3. `npm run test:integration` — a vitest `globalSetup` runs `prisma migrate deploy`
+   against it (proving a fresh DB initializes from the migration baseline), then the
+   tests truncate + re-seed deterministic tenants between cases.
+
+**Safety guard:** before any migration or `TRUNCATE`, `assertTestDatabase()`
+(`server/tests/integration/helpers/guard.ts`) refuses to run unless
+`TEST_DATABASE_URL` is set, is a valid URL, is not `NODE_ENV=production`, and its
+database name contains `test`. There is **no** fall-back to `DATABASE_URL`, so the
+dev/prod DB (name `rent+`) can never be targeted.
+
 ## Verify
 
-- **Server**: `npm run build` (tsc) + `npm run db:generate` + `curl http://localhost:5001/api/health`.
+- **Server**: `npm run build` (tsc) + `npm test` + `npm run test:integration` + `curl http://localhost:5001/api/health`.
 - **Client**: `npm run build`, `npm run lint`, `npm test`.

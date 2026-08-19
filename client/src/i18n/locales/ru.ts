@@ -6,6 +6,11 @@ const ru: TranslationSchema = {
     loading: "Загрузка...",
     logout: "Выйти",
   },
+  theme: {
+    toggle: "Переключить тему",
+    light: "Светлый режим",
+    dark: "Тёмный режим",
+  },
   login: {
     title: "Добро пожаловать в rent+",
     subtitle: "Войдите в свою учётную запись",

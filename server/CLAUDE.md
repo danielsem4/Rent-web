@@ -54,5 +54,15 @@ Mount the router in `src/index.ts` under `/api/<plural>` BEFORE the `errorHandle
 - `npm run build` — `tsc` → `dist/`.
 - `npm start` — run compiled `dist/index.js`.
 - `npm run db:generate` / `db:migrate` / `db:seed` / `db:studio` — Prisma.
+- `npm run db:migrate:deploy` — apply migrations non-interactively (CI / test DB).
 
-Seeded dev user: `admin@rentplus.dev` / `password123`.
+Seeded dev user: `super@rentplus.dev` / `password123`.
+
+## Testing
+
+Two suites, two configs:
+
+- **Fast** (`npm test`, `vitest.config.ts`) — Prisma is mocked per-file via `vi.hoisted` + `vi.mock('../src/lib/prisma')`; no database. Setup: `tests/setup.ts`. This config excludes `tests/integration/**`.
+- **Integration** (`npm run test:integration`, `vitest.integration.config.ts`) — real PostgreSQL + real Prisma against a dedicated `TEST_DATABASE_URL` database (name must contain `test`). Drives the real HTTP stack via `createApp()` + Supertest with a real login cookie. Lifecycle: `globalSetup.ts` runs `prisma migrate deploy`; `helpers/db.ts` `resetDatabase()` truncates + `seedTenants()` re-seeds between tests; `setup.ts` disconnects after.
+
+**DB isolation & safety:** `tests/integration/testEnv.ts` (imported first, before any `src/lib/prisma` import) sets `process.env.DATABASE_URL = TEST_DATABASE_URL` and `NODE_ENV=test`. `helpers/guard.ts::assertTestDatabase()` is the hard guard run before every destructive op — it refuses to proceed unless the URL is a valid, non-production, `test`-named database, with **no** fall-back to `DATABASE_URL`. Never mock `src/lib/prisma` in integration tests, and never point `TEST_DATABASE_URL` at the dev DB.

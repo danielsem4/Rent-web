@@ -6,6 +6,11 @@ const ar: TranslationSchema = {
     loading: "جارٍ التحميل...",
     logout: "تسجيل الخروج",
   },
+  theme: {
+    toggle: "تبديل السمة",
+    light: "التبديل إلى الوضع الفاتح",
+    dark: "التبديل إلى الوضع الداكن",
+  },
   login: {
     title: "مرحبًا بك في rent+",
     subtitle: "سجّل الدخول إلى حسابك",

@@ -1,5 +1,9 @@
 // rent+ Prisma schema
 // learn more: https://pris.ly/d/prisma-schema
+//
+// This schema is reconciled to faithfully represent the live database
+// (roles taxonomy, Company/User/Property, companyId NOT NULL). The datasource
+// url is supplied via prisma.config.ts (Prisma 7 style), not here.
 
 generator client {
   provider = "prisma-client-js"
@@ -13,20 +17,64 @@ datasource db {
 
 enum Role {
   SUPER_ADMIN
-  ADMIN
-  USER
+  COMPANY_MANAGER
+  COMPANY_WORKER
+  RENTER
+}
+
+// ─── Company ─────────────────────────────────────────────
+
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      User[]
+  properties Property[]
 }
 
 // ─── User ────────────────────────────────────────────────
+// role has no DB default (matches the live DB). companyId is required —
+// every user belongs to a Company; SUPER_ADMIN is company-bound for now.
 
 model User {
   id           Int      @id @default(autoincrement())
   email        String   @unique
   passwordHash String
   name         String
-  role         Role     @default(USER)
+  role         Role
+  companyId    Int
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([email])
+  @@index([companyId])
+}
+
+// ─── Property ────────────────────────────────────────────
+// Schema definition only — reconciles with the live DB. No Property
+// module/API/service/UI is built in this phase.
+
+model Property {
+  id            Int       @id @default(autoincrement())
+  companyId     Int
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  city          String
+  address       String
+  entryCode     String?
+  electricMeter String?
+  waterMeter    String?
+  ownerName     String?
+  ownerPhone    String?
+  contractStart DateTime?
+  contractEnd   DateTime?
+  monthlyRent   Int       @default(0)
+  capacity      Int       @default(1)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([companyId])
 }

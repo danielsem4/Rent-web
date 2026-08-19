@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslation } from "react-i18next";
 import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ThemeToggle from "@/common/components/ThemeToggle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -40,7 +41,10 @@ export default function Login() {
     "focus-visible:shadow-[0_0_18px_-3px_var(--color-primary)]";
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted p-4">
+    <div className="relative flex min-h-svh items-center justify-center bg-muted p-4">
+      <div className="absolute inset-e-4 top-4">
+        <ThemeToggle />
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader className="items-center text-center">
           <img src={logo} alt="rent+" className="mb-4 h-16 w-auto" />

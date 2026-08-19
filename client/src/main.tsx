@@ -6,6 +6,12 @@ import { RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { router } from "./router";
+import { useThemeStore } from "./store/useThemeStore";
+
+// Touch the theme store so persist rehydrates and applyTheme() runs on load,
+// keeping the <html> `dark` class in sync with the persisted preference.
+// (index.html already applied it pre-paint to avoid a flash.)
+useThemeStore.getState();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 60 * 1000 } },

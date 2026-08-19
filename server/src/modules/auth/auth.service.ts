@@ -1,6 +1,7 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { AppError } from '../../shared/errors/AppError';
+import type { Role } from '../../shared/constants/roles';
 import type { IAuthRepository, SafeUser } from './auth.repository';
 import type { LoginDto } from './auth.schema';
 
@@ -9,12 +10,14 @@ const TOKEN_TTL = '8h';
 export class AuthService {
   constructor(private readonly repo: IAuthRepository) {}
 
-  private sign(userId: number, role: string): string {
+  private sign(userId: number, role: Role, companyId: number): string {
     const secret = process.env['JWT_SECRET'];
     if (!secret) {
       throw new AppError('JWT_SECRET is not configured', 500);
     }
-    return jwt.sign({ userId, role }, secret, { expiresIn: TOKEN_TTL });
+    // role/companyId are snapshot claims only — the authenticate middleware
+    // re-derives them from the DB on every protected request.
+    return jwt.sign({ userId, role, companyId }, secret, { expiresIn: TOKEN_TTL });
   }
 
   async login(dto: LoginDto): Promise<{ token: string; user: SafeUser }> {
@@ -28,10 +31,16 @@ export class AuthService {
       throw new AppError('Invalid email or password', 401);
     }
 
-    const token = this.sign(user.id, user.role);
+    const token = this.sign(user.id, user.role, user.companyId);
     return {
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        companyId: user.companyId,
+      },
     };
   }
 
@@ -43,8 +52,16 @@ export class AuthService {
     return user;
   }
 
-  /** Re-issue a fresh token for an already-authenticated user. */
-  refresh(userId: number, role: string): { token: string } {
-    return { token: this.sign(userId, role) };
+  /**
+   * Re-issue a fresh token for an already-authenticated user. The new token's
+   * role/companyId are taken from the CURRENT DB row, never copied from the old
+   * token's (possibly stale) claims.
+   */
+  async refresh(userId: number): Promise<{ token: string }> {
+    const user = await this.repo.findById(userId);
+    if (!user) {
+      throw new AppError('Authentication required', 401);
+    }
+    return { token: this.sign(user.id, user.role, user.companyId) };
   }
 }

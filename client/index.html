@@ -5,6 +5,23 @@
     <link rel="icon" type="image/png" href="/src/common/assets/images/rent+logo-trans.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>rent+</title>
+    <!-- Apply the persisted theme before paint to avoid a light->dark flash.
+         Mirrors useThemeStore ("app-theme", persist shape { state: { theme } }). -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("app-theme");
+          var theme = raw ? JSON.parse(raw).state.theme : "light";
+          var prefersDark = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches;
+          var isDark = theme === "dark" || (theme === "system" && prefersDark);
+          document.documentElement.classList.toggle("dark", isDark);
+        } catch (e) {
+          /* no-op: fall back to light mode */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

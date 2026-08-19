@@ -1,11 +1,12 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AppError } from '../errors/AppError';
+import { Role } from '../constants/roles';
 
 /**
  * Role-gate factory. Use AFTER `authenticate`:
- *   router.get('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), handler)
+ *   router.get('/', authenticate, authorize(Role.COMPANY_MANAGER, Role.SUPER_ADMIN), handler)
  */
-export function authorize(...roles: string[]) {
+export function authorize(...roles: Role[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     const current = req.currentUser;
     if (!current) {

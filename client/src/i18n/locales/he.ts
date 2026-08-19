@@ -6,6 +6,11 @@ const he: TranslationSchema = {
     loading: "טוען...",
     logout: "התנתקות",
   },
+  theme: {
+    toggle: "החלפת ערכת נושא",
+    light: "מעבר למצב בהיר",
+    dark: "מעבר למצב כהה",
+  },
   login: {
     title: "ברוכים הבאים ל-rent+",
     subtitle: "התחברו לחשבון שלכם",

@@ -4,6 +4,7 @@ import { useInitAuth } from "@/hooks/common/useInitAuth";
 import { useAuthStore } from "@/store/useAuthStore";
 import { authApi } from "@/api/authApi";
 import { Button } from "@/components/ui/button";
+import ThemeToggle from "@/common/components/ThemeToggle";
 
 export default function ProtectedLayout() {
   const { t } = useTranslation();
@@ -42,7 +43,8 @@ export default function ProtectedLayout() {
       </aside>
 
       <div className="flex flex-1 flex-col">
-        <header className="flex h-14 items-center justify-end border-b px-6">
+        <header className="flex h-14 items-center justify-end gap-2 border-b px-6">
+          <ThemeToggle />
           <Button variant="outline" size="sm" onClick={handleLogout}>
             {t("common.logout")}
           </Button>

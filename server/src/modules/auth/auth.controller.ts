@@ -30,8 +30,7 @@ export function createAuthController(service: AuthService) {
 
     async refresh(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        const { userId, role } = req.currentUser!;
-        const { token } = service.refresh(userId, role);
+        const { token } = await service.refresh(req.currentUser!.userId);
         res.cookie(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
         res.json({ message: 'Token refreshed' });
       } catch (err) {
