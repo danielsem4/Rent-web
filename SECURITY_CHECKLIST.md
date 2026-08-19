@@ -45,9 +45,17 @@ deployment target, which is **not yet chosen** — those stay unchecked until th
       weak/placeholder critical secrets; dev secrets rotated out.
 - [ ] **CORS / allowed hosts** locked to production origins (no localhost fallback).
 - [ ] **Cookies** — `Secure` on, `SameSite=strict`, correct `trust proxy` if behind a proxy/CDN.
+      *(Batch 2: `TRUST_PROXY` is now a configurable hop count, OFF by default; set it to the exact
+      number of trusted proxies at launch — never `true`.)*
 - [ ] **MFA** enforced for `SUPER_ADMIN` and `COMPANY_MANAGER`.
-- [ ] **CSRF** protection implemented and tested.
+- [ ] **CSRF** protection implemented and tested. *(Batch 2: implemented + tested in code —
+      Origin/Referer validation, fail-closed; verify at launch the production `CLIENT_URL` origin is
+      correct.)*
 - [ ] **Rate limiting** on login/refresh/reset/invite with a shared store for multi-instance.
+      *(Batch 2: login has three layers — per-IP, email+IP failed-only, and per-email/account
+      failed-only (IP-independent, catches distributed attacks) — plus refresh, on an in-memory store;
+      box stays unchecked until a shared store (Redis) + correct `trust proxy` are wired for the
+      chosen multi-instance deployment.)*
 - [ ] **Short access-token TTL** — shorter access-token lifetime + an approved refresh/session
       lifecycle in place (currently `ACCESS_TOKEN_TTL='8h'`; **P1** — revocation today relies on
       DB-fresh `isActive`+`tokenVersion`, not a short TTL).
@@ -56,6 +64,10 @@ deployment target, which is **not yet chosen** — those stay unchecked until th
 - [ ] **Audit logs** for security events; **operational logging** structured; sensitive data redacted.
 - [ ] **Monitoring/alerting** for auth-failure spikes and abnormal admin activity.
 - [ ] **Dependencies** — `npm audit` clean/triaged in CI; lockfiles committed; secret scanning on.
+      *(Batch 2: 3 high findings triaged — one advisory, GHSA-ggr8-5vv4-36mx in `deepmerge-ts`, via
+      the **devDependency** Prisma CLI chain; **tooling-only**, not shipped to runtime. NOT fixed —
+      the only auto-fix is a breaking Prisma major downgrade. Recorded in `SECURITY_GAP_ANALYSIS.md`
+      §9; revisit when a non-breaking `@prisma/config` bump lands.)*
 - [ ] **File security** — N/A until a file feature exists (then apply §16).
 - [ ] **Backups** defined **and restore tested**.
 - [ ] **Incident response** runbook exists (disable, revoke, rotate, review, recover).
@@ -75,11 +87,11 @@ cited) · **Partial** · **Missing** · **Needs verification** (deployment-depen
 | **V1 Output/XSS safety** | Implemented | React escaping; no `dangerouslySetInnerHTML`/`eval` in `client/src` |
 | **V2 Validation & business logic** | Implemented | Zod `validateRequest.ts` + `*.schema.ts` on mutating routes |
 | **V2 Mass-assignment protection** | Implemented | `companyId` from context; `manageableRole` excludes `SUPER_ADMIN` — `users.service.ts:38-49` |
-| **V3 Web frontend / CSRF** | Partial | SameSite + single-origin CORS only; no CSRF token/Origin check — `cookie.ts`, `app.ts` |
+| **V3 Web frontend / CSRF** | Implemented | **Batch 2** — server-side Origin/Referer validation on authenticated mutations, fail-closed `shared/middlewares/csrf.ts`; layered with SameSite `cookie.ts`; tests `tests/csrf.test.ts`. CORS is not relied on |
 | **V3 Security headers** | Partial | `helmet()` baseline `app.ts:24`; SPA CSP not tuned (deployment) |
 | **V6 Authentication — password storage** | Implemented | bcrypt(10) — `auth.service.ts:29`, `users.service.ts:32` |
 | **V6 Authentication — enumeration** | Partial | login safe; `409` on authed create leaks existence — `users.service.ts:28` |
-| **V6 Authentication — brute-force / rate limit** | Missing | no limiter (P1) |
+| **V6 Authentication — brute-force / rate limit** | Implemented | **Batch 2** — `express-rate-limit` on login (per-IP + email+IP failed-only + **per-email/account failed-only, IP-independent** for distributed attacks) & refresh `app.ts`, `shared/security/rateLimit.ts`; tests `tests/ratelimit.test.ts`. Configurable `TRUST_PROXY` (off by default). Shared prod store (Redis) + correct `trust proxy` hop count still Needs Verification |
 | **V6 Authentication — MFA** | Missing | none; **P1** for privileged roles |
 | **V6 Authentication — credential recovery/reset** | Missing | no forgot/reset; plaintext provisioning (P1) |
 | **V7 Session — binding & storage** | Implemented | HttpOnly cookie; no localStorage token — `cookie.ts`, `useAuthStore.ts` |
@@ -98,14 +110,14 @@ cited) · **Partial** · **Missing** · **Needs verification** (deployment-depen
 | **V13 Config — secrets & fail-fast** | Implemented | **Batch 1** — `loadConfig` fails fast in prod on missing/placeholder/weak secrets `config/env.ts`, `index.ts` |
 | **V13 Config — safe error handling** | Implemented | **Batch 1** — generic prod 500, detail server-side only `errorHandler.ts` |
 | **V14 Data protection — minimization & projection** | Implemented | `SafeUser` projections; no model over-exposure |
-| **V15 Secure coding / dependencies** | Partial | lockfiles committed; no CI `npm audit`/secret scan (P2) |
+| **V15 Secure coding / dependencies** | Partial | lockfiles committed; no CI `npm audit`/secret scan (P2). **Batch 2** triaged 3 high audit findings (one advisory via the devDependency Prisma CLI chain, tooling-only, not fixed — breaking downgrade only) — see `SECURITY_GAP_ANALYSIS.md` §9 |
 | **V16 Logging & audit** | Missing | `console.*` only; no audit events (P1) |
 | **V16 Monitoring** | Needs verification | no infrastructure yet |
 | **V17 WebRTC** | N/A | not used |
 | **API1 BOLA** | Implemented | tenant-scoped queries + tests |
-| **API2 Broken authentication** | Partial | strong basics; missing MFA/rate-limit/revocation (P1) |
+| **API2 Broken authentication** | Partial | strong basics; **Batch 2** added rate limiting + CSRF; revocation via `tokenVersion`. Still missing MFA (P1) |
 | **API3 BOPLA (property-level authz)** | Implemented | projections + validated allowed fields |
-| **API4 Resource consumption / rate limits** | Missing | no rate limiting / body-size caps beyond defaults (P1) |
+| **API4 Resource consumption / rate limits** | Partial | **Batch 2** — auth rate limiting on login (per-IP + email+IP + per-email/account) & refresh `app.ts`, `shared/security/rateLimit.ts`; explicit request/body-size caps still default (§14, future) |
 | **API8 Security misconfiguration** | Partial | helmet + CORS; **Batch 1** fixed error leak, added startup config validation, and wired CORS origin to the validated `config.clientUrl` (no direct `process.env`; prod cannot fall back to localhost) `app.ts`, `config/env.ts` |
 | **API9 Improper inventory** | Partial | small surface; orphaned `dist/modules/{company,property}` stale artifacts |
 | **API10 Unsafe consumption of 3rd-party APIs** | N/A | no external API / LLM consumption |

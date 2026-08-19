@@ -65,8 +65,8 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 | Safe error responses (500 handler) | ✅ | **Batch 1** — generic `500` in prod; full detail logged server-side only `errorHandler.ts` |
 | Account disablement / `isActive` | ✅ | **Batch 1** — `User.isActive`; login denied via generic 401 (enumeration-safe, reason logged server-side) + denied next request `auth.service.ts`, `authenticate.ts` |
 | Session revocation / `tokenVersion` / revoke-all | ✅ | **Batch 1** — `User.tokenVersion` checked every request; bump = revoke-all `authenticate.ts` (trigger-wiring pending) |
-| Rate limiting / brute-force protection | ❌ | no limiter dependency — **P1** |
-| CSRF explicit design (tokens / Origin check) | 🟡 | only SameSite + CORS today — **P1** |
+| Rate limiting / brute-force protection | ✅ | **Batch 2** — `express-rate-limit` behind `shared/security/rateLimit.ts`; login (IP + email+IP failed + **per-email/account failed, IP-independent**) & refresh mounted `app.ts`; values `config/rateLimit.ts`. Account-level layer catches distributed attacks; threshold well above email+IP to bound account-DoS. Shared prod store + `trust proxy` still 🔍 |
+| CSRF explicit design (Origin/Referer check) | ✅ | **Batch 2** — server-side Origin/Referer validation on authenticated mutations, fail-closed `shared/middlewares/csrf.ts`; layered with SameSite. CORS is not relied on |
 | Startup config validation / fail-fast on weak secret | ✅ | **Batch 1** — `config/env.ts` `loadConfig` + `index.ts` fail-fast |
 | MFA (privileged roles) | ❌ | none anywhere — **P1** |
 | Invitation/set-password, forgot, reset flows | ❌ | manager sets plaintext password `users.service.ts:26-41` — **P1** |
@@ -78,11 +78,11 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 | Centralized permission catalog / `requirePermission` | ❌ | role gate + manual scoping only — **P2** |
 | DB-level tenant enforcement (RLS) | ❌ | per-query discipline only — **P2** |
 | CI + dependency/secret scanning | ❌ | no CI — **P2** |
-| Centralized security policy constants | 🟡 | partial (`cookie.ts`, `config/jwt.ts` `ACCESS_TOKEN_TTL`) — **P2** |
+| Centralized security policy constants | 🟡 | partial (`cookie.ts`, `config/jwt.ts` `ACCESS_TOKEN_TTL`, **Batch 2** `config/rateLimit.ts`) — **P2** |
 | Password strength policy | 🟡 | length-only `min 8` `users.schema.ts:20` — **P2** |
 | Content Security Policy for SPA | 🔍 | hosting-layer; deployment TBD |
 | HTTPS/TLS, DB TLS, encryption at rest, backups | 🔍 | deployment TBD — **not implemented, not claimed** |
-| Shared rate-limit store (Redis), trust-proxy, WAF, monitoring | 🔍 | deployment TBD |
+| Shared rate-limit store (Redis), trust-proxy, WAF, monitoring | 🔍 | deployment TBD — in-memory limiter store works per-process; multi-instance prod needs Redis. **Batch 2** added a configurable `TRUST_PROXY` (off by default); picking the correct hop count is deployment-dependent |
 | File upload security | ➖ | no file feature |
 | AI/LLM egress controls | ➖ | no LLM integration |
 
@@ -95,6 +95,21 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 > issuer/audience). Verified by `server/tests/security.test.ts` + `config.test.ts` (fast suite 73
 > tests) and the integration suite (22 tests); `npm run build` clean. Items below marked ~~struck~~
 > are closed.
+>
+> **Remediation Batch 2 (2026-08-19) — DONE:** rate limiting (`express-rate-limit` behind
+> `shared/security/rateLimit.ts`; login + refresh mounted; policies in `config/rateLimit.ts`) and
+> CSRF (server-side Origin/Referer validation, fail-closed, `shared/middlewares/csrf.ts`). The login
+> route carries **three** layered limiters: per-IP (all attempts), per-`email+IP` (failed only), and
+> a **per-email/account** limiter (failed only, IP-independent) that catches DISTRIBUTED attacks that
+> spread many source IPs across one account — its threshold (default 25/15min) sits well above the
+> email+IP cap (8) to bound account-DoS, and like all policies is window-based (no permanent lockout).
+> A **configurable `trust proxy`** (`TRUST_PROXY`, secure default OFF) was added so `req.ip` is
+> correct behind a proxy without allowing XFF spoofing. Verified by `server/tests/ratelimit.test.ts`
+> (incl. multi-IP-trips-account, unknown-vs-known-identical, no-lockout, success-doesn't-weaken-IP) +
+> `csrf.test.ts` and the integration suite; `npm run build` clean. **Not** done (deployment-dependent):
+> shared rate-limit store (Redis) + choosing the correct `trust proxy` hop count for the target
+> topology — Needs Verification, NOT claimed. **Dependency findings** recorded in §9 (Prisma chain,
+> tooling-only, not remediated — the only auto-fix is a breaking Prisma major downgrade).
 
 ### P0 — immediate code defect
 - ~~**500 error handler leaks internals.**~~ **FIXED (Batch 1)** — unexpected errors now return
@@ -106,9 +121,21 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
    + `User.tokenVersion`; both enforced in `authenticate` (disabled/version-bumped tokens denied on
    the next request); login returns a generic, enumeration-safe 401 for a disabled account, with the
    real reason logged server-side.
-2. **Rate limiting / lockout** on `/api/auth/login` and `/refresh` (and future reset/invite).
-3. **CSRF** — explicit design (SameSite=strict + server-side Origin/Referer check, and/or
-   synchronizer token) on cookie-based auth.
+2. ~~**Rate limiting / lockout** on `/api/auth/login` and `/refresh`~~ **DONE (Batch 2)** —
+   `express-rate-limit` behind `shared/security/rateLimit.ts`; login carries **three** layers
+   (per-IP all-attempts + per email+IP failed-only + **per-email/account failed-only, IP-independent**)
+   and refresh (per-IP), mounted in `app.ts`; policies centralized in `config/rateLimit.ts` (future
+   MFA/reset/invite policies defined, not mounted). All window-based, **no permanent lockout**. The
+   email+IP layer keys **with** IP to avoid an account-DoS vector; the account layer keys on the
+   normalized **email alone** to catch distributed (many-IP) attacks, with its threshold deliberately
+   **well above** the email+IP cap (default 25 vs 8) to keep account-DoS risk bounded. `TRUST_PROXY`
+   is now a configurable control (secure default OFF; never `true`). Shared prod store (Redis) +
+   selecting the correct `trust proxy` hop count remain deployment-dependent (Needs Verification).
+3. ~~**CSRF** — explicit design on cookie-based auth~~ **DONE (Batch 2)** — server-side
+   Origin/Referer validation on authenticated state-changing requests, **fail-closed**
+   (`shared/middlewares/csrf.ts`), layered with `SameSite=strict` (prod). CORS is **not** relied on.
+   A signed double-submit token remains a documented future option if the deployment becomes
+   cross-site.
 4. ~~**Startup config validation / fail-fast**~~ **DONE (Batch 1)** — `config/env.ts` `loadConfig`
    rejects missing/placeholder/weak secrets in production; `index.ts` exits non-zero at boot.
 5. **MFA** for `SUPER_ADMIN` and `COMPANY_MANAGER` (owner decision, 2026-08-19).
@@ -228,6 +255,26 @@ separate approved task — do NOT redesign JWT yet):**
 ## 8. Infrastructure controls that cannot be verified yet (deployment TBD)
 
 TLS/HTTPS enforcement, DB TLS, encryption at rest, backups + tested restore, secret manager/KMS,
-shared (Redis) rate-limit store, trust-proxy for secure cookies, WAF/DDoS protection, and
-monitoring/alerting. **All are production requirements / Needs Verification — none is claimed
-implemented.**
+shared (Redis) rate-limit store, the correct `trust proxy` hop count for the chosen topology (the
+knob itself is now configurable via `TRUST_PROXY`, off by default — **Batch 2**), WAF/DDoS
+protection, and monitoring/alerting. **All are production requirements / Needs Verification — none
+is claimed implemented.**
+
+---
+
+## 9. Dependency findings (`npm audit`, 2026-08-19)
+
+Recorded per Batch-2 scope. **Not remediated** — the only automatic fix is a **breaking Prisma major
+downgrade** (7.4.2 → 6.12.0), which is explicitly out of scope; these are **not** marked resolved.
+`npm audit` reports **3 high** entries that are all **one advisory** surfacing through the Prisma
+dependency chain:
+
+| Advisory / package | Affected version | Runtime or tooling | Remediation | Exploitability / impact (this project) |
+|---|---|---|---|---|
+| **GHSA-ggr8-5vv4-36mx** — `deepmerge-ts` stack exhaustion on recursive object graphs (CWE-674) | `deepmerge-ts < 8.0.0` (transitive) | **Tooling-only** | Fixed in `deepmerge-ts ≥ 8.0.0`; npm's only auto-fix is `prisma@6.12.0` (`isSemVerMajor: true`) | **Low.** Reached only via Prisma config/CLI deep-merge, not attacker-controlled runtime input. |
+| `@prisma/config` (`>= 6.13.0-dev.1`) — pulls the vulnerable `deepmerge-ts` | current (transitive of `prisma`) | **Tooling-only** | Same as above | **Low** — no runtime path (see above). |
+| `prisma` (CLI) `6.13.0-dev.1 – 7.10.0-…` | `7.4.2` (**devDependency**) | **Tooling-only** | Same as above | **Low.** `prisma` is a **devDependency** (migrate/generate/studio); the runtime uses `@prisma/client` + `@prisma/adapter-pg`, which are **not** in the vulnerable chain, so nothing vulnerable ships to production runtime. |
+
+**Tracking / next step:** keep under the existing P2 "CI + dependency scanning" item; re-evaluate when
+a non-breaking `@prisma/config` (pulling `deepmerge-ts ≥ 8`) is available on the Prisma 7 line, then
+apply without a major downgrade. Do **not** downgrade Prisma to satisfy the audit.

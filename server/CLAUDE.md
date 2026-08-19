@@ -23,11 +23,14 @@ Express 5 + TypeScript (CommonJS) + Prisma 7 (PostgreSQL, driver-adapter). Modul
 
 ```
 src/
-  index.ts            # bootstrap: helmet → cors(credentials) → cookieParser → json/urlencoded → /api/health → mount routers → errorHandler LAST
+  index.ts            # process bootstrap: loadConfig() fail-fast, then createApp(config).listen()
+  app.ts              # createApp(config): optional trust-proxy (off by default) → helmet → cors → cookieParser → json/urlencoded → CSRF check → login (per-IP + email+IP + per-email account limiters) / refresh rate limiters → /api/health → mount routers → errorHandler LAST. Security middleware is built fresh per call from config (test isolation).
   lib/prisma.ts       # single PrismaClient (PrismaPg adapter). The ONLY place a client is constructed.
   shared/
     errors/           # AppError (message, statusCode, isOperational)
-    middlewares/      # authenticate, authorize, validateRequest, errorHandler
+    middlewares/      # authenticate, authorize, validateRequest, errorHandler, csrf (Origin/Referer check)
+    security/         # rateLimit.ts — reusable wrapper over express-rate-limit (named policy factories)
+    config/           # env.ts (loadConfig + validation), jwt.ts, rateLimit.ts (centralized §28 policy values)
     utils/            # cookie.ts (AUTH_COOKIE_NAME + options), etc.
   modules/<feature>/  # one folder per domain (kebab-case)
 ```

@@ -59,6 +59,10 @@ findUnique.mockImplementation(async ({ where }: { where: { email?: string; id?: 
 
 const INVALID_CREDENTIALS = 'Invalid email or password';
 const AUTH_REQUIRED = 'Authentication required';
+// Same-origin value the CSRF check accepts in the test env (config.clientUrl is
+// unset ⇒ the dev fallback origin). Authenticated (cookie-bearing) mutations
+// must send it, since the CSRF middleware runs before `authenticate`.
+const ORIGIN = 'http://localhost:5173';
 
 beforeEach(async () => {
   // Fresh isolated fixture per test: one COMPANY_MANAGER with a known password.
@@ -179,7 +183,8 @@ describe('POST /api/auth/refresh', () => {
     const token = signToken(1, 'COMPANY_MANAGER');
     const res = await request(app)
       .post('/api/auth/refresh')
-      .set('Cookie', [`token=${token}`]);
+      .set('Cookie', [`token=${token}`])
+      .set('Origin', ORIGIN);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ message: 'Token refreshed' });
@@ -201,7 +206,8 @@ describe('POST /api/auth/logout', () => {
     const token = signToken(1, 'COMPANY_MANAGER');
     const res = await request(app)
       .post('/api/auth/logout')
-      .set('Cookie', [`token=${token}`]);
+      .set('Cookie', [`token=${token}`])
+      .set('Origin', ORIGIN);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ message: 'Logged out' });
@@ -396,7 +402,10 @@ describe('POST /api/auth/refresh — re-issues from current DB state', () => {
     // ...but the presented token still claims COMPANY_MANAGER / company 1.
     const stale = signToken(1, Role.COMPANY_MANAGER, 1);
 
-    const res = await request(app).post('/api/auth/refresh').set('Cookie', [`token=${stale}`]);
+    const res = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', [`token=${stale}`])
+      .set('Origin', ORIGIN);
 
     expect(res.status).toBe(200);
     const decoded = tokenFromSetCookie(res.headers['set-cookie'] as unknown as string[]);
@@ -408,7 +417,10 @@ describe('POST /api/auth/refresh — re-issues from current DB state', () => {
     users = [];
     const token = signToken(1, Role.COMPANY_MANAGER, 1);
 
-    const res = await request(app).post('/api/auth/refresh').set('Cookie', [`token=${token}`]);
+    const res = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', [`token=${token}`])
+      .set('Origin', ORIGIN);
 
     expect(res.status).toBe(401);
     expect(res.body.message).toBe(AUTH_REQUIRED);

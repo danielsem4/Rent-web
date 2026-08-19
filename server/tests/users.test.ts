@@ -106,6 +106,9 @@ updateMany.mockImplementation(
 const NOT_FOUND = 'User not found';
 const FORBIDDEN = 'Forbidden';
 const AUTH_REQUIRED = 'Authentication required';
+// Same-origin value the CSRF check accepts in the test env; authenticated
+// (cookie-bearing) POST/PATCH requests must send it (CSRF runs before authorize).
+const ORIGIN = 'http://localhost:5173';
 
 /** Cookie header for a signed session belonging to the given user id. */
 function cookieFor(userId: number): string[] {
@@ -176,6 +179,7 @@ describe('Role authorization', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', cookieFor(WORKER_ID))
+      .set('Origin', ORIGIN)
       .send(validCreateBody());
     expect(res.status).toBe(403);
   });
@@ -239,6 +243,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c10@test.dev' }));
 
     expect(res.status).toBe(201);
@@ -250,6 +255,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c11@test.dev', companyId: COMPANY_B }));
 
     expect(res.status).toBe(201);
@@ -263,6 +269,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c12@test.dev', role: 'SUPER_ADMIN' }));
 
     expect(res.status).toBe(400);
@@ -274,6 +281,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c13@test.dev', role: Role.COMPANY_WORKER }));
 
     expect(res.status).toBe(201);
@@ -285,6 +293,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c14@test.dev', role: Role.RENTER }));
 
     expect(res.status).toBe(201);
@@ -296,6 +305,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'worker-a@test.dev' }));
 
     expect(res.status).toBe(409);
@@ -312,6 +322,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${WORKER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Renamed Worker' });
 
     expect(res.status).toBe(200);
@@ -324,6 +335,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${RENTER_B_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Hacked' });
 
     expect(res.status).toBe(404);
@@ -336,6 +348,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${WORKER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Still A', companyId: COMPANY_B });
 
     expect(res.status).toBe(200);
@@ -348,6 +361,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${WORKER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ role: 'SUPER_ADMIN' });
 
     expect(res.status).toBe(400);
@@ -359,6 +373,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${MANAGER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ role: Role.COMPANY_WORKER });
 
     expect(res.status).toBe(403);
@@ -369,6 +384,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${MANAGER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Manager Renamed' });
 
     expect(res.status).toBe(200);
@@ -392,6 +408,7 @@ describe('Response safety — passwordHash never leaks', () => {
     const created = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'safe@test.dev' }));
     expect(created.body.user).not.toHaveProperty('passwordHash');
     expect(JSON.stringify(created.body)).not.toContain('passwordHash');
@@ -399,6 +416,7 @@ describe('Response safety — passwordHash never leaks', () => {
     const updated = await request(app)
       .patch(`/api/users/${WORKER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Safe Worker' });
     expect(updated.body.user).not.toHaveProperty('passwordHash');
     expect(JSON.stringify(updated.body)).not.toContain('passwordHash');

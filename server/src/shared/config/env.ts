@@ -11,6 +11,24 @@
  * the mocked unit suite — which has no `DATABASE_URL` — keeps working.
  */
 
+import { RATE_LIMIT_DEFAULTS } from './rateLimit';
+
+/** Effective, per-environment rate-limit values for the MOUNTED policies. */
+export interface RateLimitConfig {
+  login: {
+    ipWindowMs: number;
+    ipMax: number;
+    emailWindowMs: number;
+    emailMax: number;
+    accountWindowMs: number;
+    accountMax: number;
+  };
+  refresh: {
+    windowMs: number;
+    max: number;
+  };
+}
+
 export interface AppConfig {
   nodeEnv: string;
   isProduction: boolean;
@@ -18,6 +36,16 @@ export interface AppConfig {
   jwtSecret: string;
   databaseUrl: string | undefined;
   clientUrl: string | undefined;
+  /** Rate-limit policy values (SECURITY_PRINCIPLES.md §15/§28). */
+  rateLimit: RateLimitConfig;
+  /**
+   * Number of trusted reverse-proxy hops (`app.set('trust proxy', n)`).
+   * `undefined` = OFF (secure default): `X-Forwarded-For` is ignored and
+   * `req.ip` is the real socket peer, so a client cannot spoof its IP to evade
+   * the per-IP rate limiters. Set to the exact hop count only when deployed
+   * behind a known proxy/CDN (deployment-dependent — Needs Verification).
+   */
+  trustProxy: number | undefined;
 }
 
 /** Thrown when startup configuration is invalid. Message names variables only. */
@@ -103,6 +131,40 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
   }
 
+  // Rate-limit values — overridable per environment, defaulting to the central
+  // catalog. A positive integer is required when provided; anything else is an
+  // error (fail closed rather than silently applying an unbounded/zero limit).
+  const rl = RATE_LIMIT_DEFAULTS;
+  const rateLimit: RateLimitConfig = {
+    login: {
+      ipWindowMs: readPositiveInt(env, 'RATE_LIMIT_LOGIN_IP_WINDOW_MS', rl.loginIp.windowMs, errors),
+      ipMax: readPositiveInt(env, 'RATE_LIMIT_LOGIN_IP_MAX', rl.loginIp.max, errors),
+      emailWindowMs: readPositiveInt(
+        env,
+        'RATE_LIMIT_LOGIN_EMAIL_WINDOW_MS',
+        rl.loginEmail.windowMs,
+        errors,
+      ),
+      emailMax: readPositiveInt(env, 'RATE_LIMIT_LOGIN_EMAIL_MAX', rl.loginEmail.max, errors),
+      accountWindowMs: readPositiveInt(
+        env,
+        'RATE_LIMIT_LOGIN_ACCOUNT_WINDOW_MS',
+        rl.loginAccount.windowMs,
+        errors,
+      ),
+      accountMax: readPositiveInt(env, 'RATE_LIMIT_LOGIN_ACCOUNT_MAX', rl.loginAccount.max, errors),
+    },
+    refresh: {
+      windowMs: readPositiveInt(env, 'RATE_LIMIT_REFRESH_WINDOW_MS', rl.refresh.windowMs, errors),
+      max: readPositiveInt(env, 'RATE_LIMIT_REFRESH_MAX', rl.refresh.max, errors),
+    },
+  };
+
+  // TRUST_PROXY — optional. Absent => undefined (OFF, secure default). When
+  // present it must be a positive integer hop count (fail closed otherwise); we
+  // never accept `true`, which would let any client spoof X-Forwarded-For.
+  const trustProxy = readOptionalPositiveInt(env, 'TRUST_PROXY', errors);
+
   if (errors.length > 0) {
     // Names only — never the offending values.
     throw new ConfigError(`Invalid environment configuration:\n  - ${errors.join('\n  - ')}`);
@@ -116,5 +178,52 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     jwtSecret: jwtSecret as string,
     databaseUrl,
     clientUrl,
+    rateLimit,
+    trustProxy,
   };
+}
+
+/**
+ * Read an optional positive-integer env var. Falls back to `fallback` when unset
+ * or empty; pushes a (value-free) error when present but not a positive integer.
+ */
+function readPositiveInt(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallback: number,
+  errors: string[],
+): number {
+  const raw = env[name];
+  if (raw === undefined || raw === '') {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    errors.push(`${name} must be a positive integer`);
+    return fallback;
+  }
+  return parsed;
+}
+
+/**
+ * Read an optional positive-integer env var with NO numeric fallback: returns
+ * `undefined` when unset/empty, or pushes a (value-free) error when present but
+ * not a positive integer. Used for `TRUST_PROXY`, where "absent" is a distinct,
+ * meaningful state (proxy trust OFF) rather than a default count.
+ */
+function readOptionalPositiveInt(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  errors: string[],
+): number | undefined {
+  const raw = env[name];
+  if (raw === undefined || raw === '') {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    errors.push(`${name} must be a positive integer`);
+    return undefined;
+  }
+  return parsed;
 }

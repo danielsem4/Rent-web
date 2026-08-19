@@ -409,8 +409,10 @@ lightweight incident-response runbook before production.
 Security-sensitive constants must be **centralized and reviewable**, not scattered magic numbers:
 access-token TTL, absolute session lifetime, cookie options, OTP/reset TTL + attempt limits,
 resend cooldowns, rate limits, and request/body size limits. Any change to a security policy value
-must be visible in review. *(Today: partially centralized in `server/src/shared/utils/cookie.ts`
-and `TOKEN_TTL`; consolidation is a tracked item.)*
+must be visible in review. *(Today: centralized in `server/src/shared/utils/cookie.ts` (cookie
+options), `server/src/shared/config/jwt.ts` (`ACCESS_TOKEN_TTL`), and `server/src/shared/config/rateLimit.ts`
+(rate-limit policies, Batch 2); OTP/reset TTLs and body-size limits remain to be added with their
+features.)*
 
 ---
 

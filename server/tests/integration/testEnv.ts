@@ -26,4 +26,12 @@ if (!process.env['JWT_SECRET']) {
   process.env['JWT_SECRET'] = 'integration-test-secret';
 }
 
+// Effectively disable rate limiting for the integration suite — it logs in many
+// times against one app instance. Throttling behavior is proven in the fast
+// suite's dedicated ratelimit.test.ts.
+process.env['RATE_LIMIT_LOGIN_IP_MAX'] = '1000000';
+process.env['RATE_LIMIT_LOGIN_EMAIL_MAX'] = '1000000';
+process.env['RATE_LIMIT_LOGIN_ACCOUNT_MAX'] = '1000000';
+process.env['RATE_LIMIT_REFRESH_MAX'] = '1000000';
+
 export const TEST_DATABASE_URL = testDatabaseUrl as string;

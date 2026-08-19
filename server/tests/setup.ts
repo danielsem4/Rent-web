@@ -9,6 +9,15 @@ import { beforeEach, vi } from 'vitest';
 process.env['NODE_ENV'] = 'test';
 process.env['JWT_SECRET'] = 'test-secret';
 
+// Effectively disable rate limiting for the general fast suite so unrelated
+// tests (which log in / refresh many times against one app instance) never trip
+// the limiter. The dedicated ratelimit.test.ts builds its OWN app with tiny
+// limits via loadConfig(env) to exercise throttling deterministically.
+process.env['RATE_LIMIT_LOGIN_IP_MAX'] = '1000000';
+process.env['RATE_LIMIT_LOGIN_EMAIL_MAX'] = '1000000';
+process.env['RATE_LIMIT_LOGIN_ACCOUNT_MAX'] = '1000000';
+process.env['RATE_LIMIT_REFRESH_MAX'] = '1000000';
+
 // Keep each test independent — mock call history is reset between tests.
 beforeEach(() => {
   vi.clearAllMocks();
