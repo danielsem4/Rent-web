@@ -12,22 +12,41 @@ import { Role } from '../src/shared/constants/roles';
 // relational store (tenant filtering, inserts, scoped updates). The real
 // `src/lib/prisma` module body therefore never runs and no DB is contacted.
 // ---------------------------------------------------------------------------
-const { findUnique, findFirst, findMany, create, updateMany } = vi.hoisted(() => ({
-  findUnique: vi.fn(),
-  findFirst: vi.fn(),
-  findMany: vi.fn(),
-  create: vi.fn(),
-  updateMany: vi.fn(),
-}));
+const { findUnique, findFirst, findMany, create, updateMany, tokenCreate, tokenUpdateMany } =
+  vi.hoisted(() => ({
+    findUnique: vi.fn(),
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    create: vi.fn(),
+    updateMany: vi.fn(),
+    // Creating a user now also issues an INVITATION token via the account repo.
+    tokenCreate: vi.fn(async () => ({ id: 1 })),
+    tokenUpdateMany: vi.fn(async () => ({ count: 0 })),
+  }));
 
 vi.mock('../src/lib/prisma', () => ({
-  default: { user: { findUnique, findFirst, findMany, create, updateMany } },
+  default: {
+    user: { findUnique, findFirst, findMany, create, updateMany },
+    accountToken: { create: tokenCreate, updateMany: tokenUpdateMany },
+    auditLog: { create: vi.fn() },
+  },
 }));
 
 // Imported AFTER the mock is registered (hoisting guarantees the order).
 import { createApp } from '../src/app';
+import type { AccountMailer } from '../src/shared/notifications/mailer';
 
-const app = createApp();
+// Capturing mailer: records issued invitations instead of logging them, so tests
+// can assert an invitation was sent (and keep console output clean).
+const sentInvitations: Array<{ to: string; link: string }> = [];
+const captureMailer: AccountMailer = {
+  sendInvitation: async (to, link) => {
+    sentInvitations.push({ to, link });
+  },
+  sendPasswordReset: async () => {},
+};
+
+const app = createApp(undefined, { mailer: captureMailer });
 
 // ── Tenant layout ──────────────────────────────────────────────────────────
 // Company A = 1 (the acting manager's company), Company B = 2, Platform = 9.
@@ -68,7 +87,14 @@ create.mockImplementation(
   async ({
     data,
   }: {
-    data: { email: string; name: string; role: Role; companyId: number; passwordHash: string };
+    data: {
+      email: string;
+      name: string;
+      role: Role;
+      companyId: number;
+      passwordHash: string;
+      isActive: boolean;
+    };
   }) => {
     const row: UserRow = {
       id: nextId++,
@@ -77,6 +103,9 @@ create.mockImplementation(
       role: data.role,
       companyId: data.companyId,
       passwordHash: data.passwordHash,
+      // Invited users start pending; the invitation flow flips this to true.
+      isActive: data.isActive,
+      tokenVersion: 0,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     };
@@ -119,16 +148,17 @@ function cookieFor(userId: number): string[] {
 
 const managerCookie = () => cookieFor(MANAGER_ID);
 
+// No password field: managers invite; the user sets their own password later.
 const validCreateBody = (overrides: Record<string, unknown> = {}) => ({
   email: 'new-user@test.dev',
   name: 'New User',
-  password: 'password123',
   role: Role.COMPANY_WORKER,
   ...overrides,
 });
 
 beforeEach(async () => {
   nextId = 100;
+  sentInvitations.length = 0;
   users = [
     await makeUserRow({ id: MANAGER_ID, email: 'manager-a@test.dev', name: 'Manager A', role: Role.COMPANY_MANAGER, companyId: COMPANY_A }),
     await makeUserRow({ id: WORKER_ID, email: 'worker-a@test.dev', name: 'Worker A', role: Role.COMPANY_WORKER, companyId: COMPANY_A }),
@@ -310,6 +340,37 @@ describe('POST /api/users — create isolation', () => {
 
     expect(res.status).toBe(409);
     expect(res.body.message).toBe('Email already in use');
+  });
+
+  // Invitation flow: no plaintext password is accepted; the new user is created
+  // PENDING (isActive:false) and an invitation is dispatched.
+  it('creates the user pending and dispatches an invitation (no password stored)', async () => {
+    const res = await request(app)
+      .post('/api/users')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ email: 'invitee@test.dev' }));
+
+    expect(res.status).toBe(201);
+    const stored = users.find((u) => u.email === 'invitee@test.dev');
+    expect(stored?.isActive).toBe(false);
+    // An invitation link was dispatched to the new user.
+    expect(sentInvitations).toHaveLength(1);
+    expect(sentInvitations[0]!.to).toBe('invitee@test.dev');
+  });
+
+  it('ignores a client-supplied password (mass-assignment stripped)', async () => {
+    const res = await request(app)
+      .post('/api/users')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ email: 'ignore-pw@test.dev', password: 'attacker-set-pw1' }));
+
+    expect(res.status).toBe(201);
+    // The stored hash is the unusable placeholder, never the supplied password.
+    const stored = users.find((u) => u.email === 'ignore-pw@test.dev');
+    expect(stored?.isActive).toBe(false);
+    expect(stored?.passwordHash).not.toContain('attacker-set-pw1');
   });
 });
 

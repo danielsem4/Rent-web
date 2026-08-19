@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AppError } from '../errors/AppError';
+import { logger } from '../logging/logger';
 
 /**
  * Centralized error handler (registered last).
@@ -14,7 +15,7 @@ import { AppError } from '../errors/AppError';
  */
 export function errorHandler(
   err: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
 ): void {
@@ -23,8 +24,15 @@ export function errorHandler(
     return;
   }
 
-  // Full detail stays server-side only.
-  console.error('Unexpected error:', err);
+  // Full detail stays server-side only, in a structured log correlated by
+  // requestId. `redact()` (inside the logger) scrubs any sensitive fields the
+  // error object might carry.
+  logger.error('unhandled_error', {
+    requestId: req.requestId,
+    method: req.method,
+    path: req.originalUrl.split('?')[0],
+    err,
+  });
 
   const body: { message: string; detail?: string } = { message: 'Internal server error' };
   if (process.env['NODE_ENV'] !== 'production') {

@@ -411,8 +411,9 @@ access-token TTL, absolute session lifetime, cookie options, OTP/reset TTL + att
 resend cooldowns, rate limits, and request/body size limits. Any change to a security policy value
 must be visible in review. *(Today: centralized in `server/src/shared/utils/cookie.ts` (cookie
 options), `server/src/shared/config/jwt.ts` (`ACCESS_TOKEN_TTL`), and `server/src/shared/config/rateLimit.ts`
-(rate-limit policies, Batch 2); OTP/reset TTLs and body-size limits remain to be added with their
-features.)*
+(rate-limit policies, Batch 2), and `server/src/modules/account/account.service.ts` (invitation 24h /
+password-reset 1h token TTLs) + `account.schema.ts` (`passwordSchema`, Batch 3); body-size limits and
+OTP/MFA TTLs remain to be added with their features.)*
 
 ---
 

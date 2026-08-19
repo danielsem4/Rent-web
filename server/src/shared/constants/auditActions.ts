@@ -1,0 +1,39 @@
+/**
+ * Audit action + resource catalog (SECURITY_PRINCIPLES.md §18).
+ *
+ * A centralized, reviewable string catalog rather than a Prisma enum: the set of
+ * audited actions grows as the product does, and a plain `String` column + this
+ * TS union avoids a schema migration for every new action while keeping the
+ * values type-checked at the call sites. Mirrors the `roles.ts` catalog style.
+ */
+
+export const AUDIT_ACTIONS = {
+  // Authentication
+  AUTH_LOGIN_SUCCESS: 'AUTH_LOGIN_SUCCESS',
+  AUTH_LOGIN_FAILED: 'AUTH_LOGIN_FAILED',
+  AUTH_TOKEN_REFRESH: 'AUTH_TOKEN_REFRESH',
+  // User administration
+  USER_CREATED: 'USER_CREATED',
+  USER_UPDATED: 'USER_UPDATED',
+  USER_ROLE_CHANGED: 'USER_ROLE_CHANGED',
+  // Account lifecycle
+  INVITATION_SENT: 'INVITATION_SENT',
+  INVITATION_ACCEPTED: 'INVITATION_ACCEPTED',
+  PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
+  PASSWORD_RESET_COMPLETED: 'PASSWORD_RESET_COMPLETED',
+  // Session
+  // Reserved for a future admin disable/revoke endpoint (not built yet — account
+  // enable/disable has no handler today). Revocation triggered by a password
+  // set/change is captured via `sessionsRevoked` metadata on the password events.
+  SESSION_REVOKED: 'SESSION_REVOKED',
+} as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
+
+export const RESOURCE_TYPES = {
+  USER: 'USER',
+  AUTH: 'AUTH',
+  COMPANY: 'COMPANY',
+} as const;
+
+export type ResourceType = (typeof RESOURCE_TYPES)[keyof typeof RESOURCE_TYPES];

@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { AuthService } from './auth.service';
 import type { LoginDto } from './auth.schema';
+import { buildAuditContext } from '../../shared/audit/auditLogger';
 import {
   AUTH_COOKIE_NAME,
   AUTH_COOKIE_OPTIONS,
@@ -11,7 +12,7 @@ export function createAuthController(service: AuthService) {
   return {
     async login(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        const result = await service.login(req.body as LoginDto);
+        const result = await service.login(req.body as LoginDto, buildAuditContext(req));
         res.cookie(AUTH_COOKIE_NAME, result.token, AUTH_COOKIE_OPTIONS);
         res.json({ user: result.user });
       } catch (err) {
@@ -30,7 +31,7 @@ export function createAuthController(service: AuthService) {
 
     async refresh(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        const { token } = await service.refresh(req.currentUser!.userId);
+        const { token } = await service.refresh(req.currentUser!.userId, buildAuditContext(req));
         res.cookie(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
         res.json({ message: 'Token refreshed' });
       } catch (err) {

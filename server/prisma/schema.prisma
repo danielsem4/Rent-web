@@ -22,6 +22,13 @@ enum Role {
   RENTER
 }
 
+// Account-lifecycle token kinds (SECURITY_PRINCIPLES.md §3/§24). INVITATION lets a
+// provisioned user set their first password; PASSWORD_RESET drives forgot/reset.
+enum AccountTokenType {
+  INVITATION
+  PASSWORD_RESET
+}
+
 // ─── Company ─────────────────────────────────────────────
 
 model Company {
@@ -55,8 +62,58 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  accountTokens AccountToken[]
+
   @@index([email])
   @@index([companyId])
+}
+
+// ─── AccountToken ────────────────────────────────────────
+// Single-use, time-limited tokens for the account lifecycle (invitation /
+// password-reset). Only the SHA-256 HASH of the random token is stored — the raw
+// token is delivered to the user and never persisted or logged (SECURITY_PRINCIPLES.md
+// §7/§18). A token is spent by setting `usedAt`; rows cascade-delete with the user.
+
+model AccountToken {
+  id        Int              @id @default(autoincrement())
+  tokenHash String           @unique
+  type      AccountTokenType
+  userId    Int
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+}
+
+// ─── AuditLog ────────────────────────────────────────────
+// Append-only security audit trail (SECURITY_PRINCIPLES.md §18). Records
+// security-sensitive events (login success/failure, user create, invitation,
+// password reset, role change, session revocation).
+//
+// DELIBERATE deviation from the repo's "always FK + cascade" convention:
+// `userId`/`companyId` are LOOSE nullable columns with NO foreign key, so an
+// audit record is forensic evidence that SURVIVES deletion of the referenced
+// user/company (a cascade would erase the trail). `metadata` is SANITIZED before
+// write — it must NEVER contain passwords, tokens, tokenHash, cookies, or secrets.
+
+model AuditLog {
+  id           Int      @id @default(autoincrement())
+  companyId    Int?
+  userId       Int?
+  action       String
+  resourceType String
+  resourceId   String?
+  ipAddress    String?
+  userAgent    String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 // ─── Property ────────────────────────────────────────────

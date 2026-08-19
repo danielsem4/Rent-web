@@ -27,7 +27,7 @@ CI / deployment config.
 | External integrations | **None** (only PostgreSQL) | both `package.json` |
 | AI / LLM | **None** | — |
 | Secrets/config | `dotenv`, `process.env['X']`; no startup validation | `server/src/index.ts:1-2` |
-| Logging | `console.*` only; no library, no audit trail | `errorHandler.ts:15`, `index.ts:10` |
+| Logging | **Batch 4** — structured JSON logger + request correlation + `AuditLog` trail; no `console.*` | `shared/logging/logger.ts`, `shared/audit/*` |
 | Tests | Vitest unit (Prisma mocked) + integration (real PG, Supertest) | `server/tests/**` |
 | CI/CD | **None** | (no `.github/workflows`) |
 | Deployment | **None chosen** | (no Docker/vercel/etc.) |
@@ -64,14 +64,16 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 | Lockfiles committed | ✅ | both `package-lock.json` |
 | Safe error responses (500 handler) | ✅ | **Batch 1** — generic `500` in prod; full detail logged server-side only `errorHandler.ts` |
 | Account disablement / `isActive` | ✅ | **Batch 1** — `User.isActive`; login denied via generic 401 (enumeration-safe, reason logged server-side) + denied next request `auth.service.ts`, `authenticate.ts` |
-| Session revocation / `tokenVersion` / revoke-all | ✅ | **Batch 1** — `User.tokenVersion` checked every request; bump = revoke-all `authenticate.ts` (trigger-wiring pending) |
+| Session revocation / `tokenVersion` / revoke-all | ✅ | **Batch 1** — `User.tokenVersion` checked every request; bump = revoke-all `authenticate.ts`. **Batch 3** wired the writer: every password set/change bumps it `modules/account/account.repository.ts` |
 | Rate limiting / brute-force protection | ✅ | **Batch 2** — `express-rate-limit` behind `shared/security/rateLimit.ts`; login (IP + email+IP failed + **per-email/account failed, IP-independent**) & refresh mounted `app.ts`; values `config/rateLimit.ts`. Account-level layer catches distributed attacks; threshold well above email+IP to bound account-DoS. Shared prod store + `trust proxy` still 🔍 |
 | CSRF explicit design (Origin/Referer check) | ✅ | **Batch 2** — server-side Origin/Referer validation on authenticated mutations, fail-closed `shared/middlewares/csrf.ts`; layered with SameSite. CORS is not relied on |
 | Startup config validation / fail-fast on weak secret | ✅ | **Batch 1** — `config/env.ts` `loadConfig` + `index.ts` fail-fast |
 | MFA (privileged roles) | ❌ | none anywhere — **P1** |
-| Invitation/set-password, forgot, reset flows | ❌ | manager sets plaintext password `users.service.ts:26-41` — **P1** |
-| Audit logging | ❌ | none — **P1** |
-| Structured operational logging | ❌ | `console.*` only — **P1** |
+| Audit logging (security events) | ✅ | **Batch 4** — durable `AuditLog` table + resilient `AuditService` (`shared/audit/*`); events wired for login success/failure, user create, invitation sent/accepted, password reset requested/completed, role change; metadata sanitized (never passwords/tokens/tokenHash/cookies); tests `tests/audit.test.ts`, `tests/integration/audit.integration.test.ts` |
+| Structured operational logging | ✅ | **Batch 4** — dependency-free structured JSON logger (`shared/logging/logger.ts`, pretty dev / compact JSON prod, redaction), request correlation id (`requestContext.ts`) + HTTP lifecycle log (`requestLogger.ts`); all `console.*` replaced; tests `tests/logger.test.ts` |
+| Invitation/set-password, forgot, reset flows | ✅ | **Batch 3** — random single-use time-limited tokens (SHA-256 hashed at rest), enumeration-safe forgot-password, `tokenVersion` bump on every password change; plaintext provisioning removed `modules/account/*`, `users.service.ts`; tests `tests/account.test.ts`, `tests/integration/account.integration.test.ts` |
+| Audit logging | ✅ | **Batch 4** — see the "Audit logging (security events)" row above |
+| Structured operational logging | ✅ | **Batch 4** — see the "Structured operational logging" row above |
 | JWT algorithm pin / iss / aud | ✅ | **Batch 1** — pinned HS256 + issuer/audience `authenticate.ts`, `config/jwt.ts` |
 | Short-lived access-token TTL + refresh rotation | 🟡 | 8h TTL — immediate revocation via `isActive`+`tokenVersion`, not a short TTL; shorten before prod — **P1** `config/jwt.ts:17` |
 | Login timing side-channel mitigation | ❌ | no dummy compare on missing user `auth.service.ts:24-32` — **P2** |
@@ -79,7 +81,7 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 | DB-level tenant enforcement (RLS) | ❌ | per-query discipline only — **P2** |
 | CI + dependency/secret scanning | ❌ | no CI — **P2** |
 | Centralized security policy constants | 🟡 | partial (`cookie.ts`, `config/jwt.ts` `ACCESS_TOKEN_TTL`, **Batch 2** `config/rateLimit.ts`) — **P2** |
-| Password strength policy | 🟡 | length-only `min 8` `users.schema.ts:20` — **P2** |
+| Password strength policy | 🟡 | **Batch 3** — centralized `passwordSchema` (min 8 + letter + digit) `modules/account/account.schema.ts`; breached-password / full-complexity check still **P2** |
 | Content Security Policy for SPA | 🔍 | hosting-layer; deployment TBD |
 | HTTPS/TLS, DB TLS, encryption at rest, backups | 🔍 | deployment TBD — **not implemented, not claimed** |
 | Shared rate-limit store (Redis), trust-proxy, WAF, monitoring | 🔍 | deployment TBD — in-memory limiter store works per-process; multi-instance prod needs Redis. **Batch 2** added a configurable `TRUST_PROXY` (off by default); picking the correct hop count is deployment-dependent |
@@ -110,6 +112,37 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 > shared rate-limit store (Redis) + choosing the correct `trust proxy` hop count for the target
 > topology — Needs Verification, NOT claimed. **Dependency findings** recorded in §9 (Prisma chain,
 > tooling-only, not remediated — the only auto-fix is a breaking Prisma major downgrade).
+>
+> **Remediation Batch 3 (2026-08-19) — DONE:** secure account lifecycle (P1 item 6). New
+> `modules/account` + `AccountToken` model/migration deliver invitation/set-password and
+> forgot/reset via random, single-use, time-limited, SHA-256-hashed tokens; `POST /api/users`
+> stops accepting plaintext passwords (invited users start pending until they set their own);
+> forgot-password is enumeration-safe; every password change bumps `tokenVersion` (wiring the
+> Batch 1 revoke-all); the three prepared reset/invite rate-limit policies are mounted. Verified by
+> `server/tests/account.test.ts` (fast) + `server/tests/integration/account.integration.test.ts`;
+> `npm run build` clean; full fast (104) + integration (26) suites green. **Not** done here (still
+> P1): MFA (item 5), audit logging (item 7), structured logging (item 8), short-lived access
+> token + refresh rotation (item 9). Email-provider selection remains an open decision (§7) — the
+> delivery seam fails closed in production until one is wired.
+>
+> **Remediation Batch 4 (2026-08-19) — DONE:** structured operational logging (P1 item 8) +
+> centralized security audit logging (P1 item 7). A dependency-free structured logger
+> (`server/src/shared/logging/logger.ts`) replaces every `console.*` (compact JSON in prod,
+> human-readable in dev), with a shared `redact()` primitive that scrubs sensitive keys
+> (pass/token/tokenHash/secret/cookie/jwt/authorization/apiKey/otp). A per-request correlation id
+> (`requestContext.ts`, echoed as `X-Request-Id`) and an HTTP-lifecycle log (`requestLogger.ts`)
+> thread through the error handler. A durable `AuditLog` table (loose, no-FK `userId`/`companyId`
+> so records survive deletion — a deliberate deviation from the cascade convention) is written via
+> a resilient `AuditService` (`shared/audit/*`) that sanitizes metadata and **never throws** into
+> the request flow. Events are emitted for login success/failure (with reason), token refresh, user
+> create, invitation sent/accepted, password reset requested/completed (with `sessionsRevoked`), and
+> role change; `SESSION_REVOKED` is reserved for the future admin disable/revoke endpoint. A
+> `LOG_LEVEL` config was added (validated, fail-fast). Verified by `tests/logger.test.ts` +
+> `tests/audit.test.ts` (fast) and `tests/integration/audit.integration.test.ts` (real DB: rows
+> written with correct actor/tenant/resource, no raw tokens/passwords); `npm run build` clean; full
+> fast + integration suites green. **Not** done here (still P1): MFA (item 5) and short-lived access
+> token + refresh rotation (item 9). Monitoring/alerting on these logs remains deployment-dependent
+> (§19 — Needs Verification, not claimed).
 
 ### P0 — immediate code defect
 - ~~**500 error handler leaks internals.**~~ **FIXED (Batch 1)** — unexpected errors now return
@@ -139,13 +172,28 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 4. ~~**Startup config validation / fail-fast**~~ **DONE (Batch 1)** — `config/env.ts` `loadConfig`
    rejects missing/placeholder/weak secrets in production; `index.ts` exits non-zero at boot.
 5. **MFA** for `SUPER_ADMIN` and `COMPANY_MANAGER` (owner decision, 2026-08-19).
-6. **Account lifecycle** — invitation/set-password, forgot, reset (random single-use
-   time-limited tokens; enumeration-safe); **remove plaintext-password provisioning** for prod.
-   *(The `tokenVersion` revoke-all mechanism from Batch 1 is ready to wire to password-change /
-   admin-revoke / disable triggers here.)*
-7. **Audit logging** for login success/failure, user create, role/permission change, disable,
-   session revocation.
-8. **Structured operational logging** (replace `console.*`).
+6. ~~**Account lifecycle** — invitation/set-password, forgot, reset~~ **DONE (Batch 3)** — new
+   `modules/account` mounts `POST /api/auth/{invitation/accept,forgot-password,reset-password}`.
+   Tokens are `crypto.randomBytes(32)` hex, stored only as a SHA-256 hash (`AccountToken`,
+   single-use via a race-safe conditional `updateMany` inside `$transaction`, time-limited —
+   invitation 24h / reset 1h). `POST /api/users` no longer accepts a password: invited users are
+   created **pending** (`isActive:false`) with an unusable placeholder hash and must set their own
+   password via the invitation token. Forgot-password is **enumeration-safe** (identical 200; a
+   token is issued only for an existing active user; delivery failures are swallowed). Every
+   password set/change **bumps `tokenVersion`** (wires the Batch 1 revoke-all). Email delivery is a
+   provider seam (`shared/notifications/mailer.ts`) — dev console prints the link (non-prod only),
+   prod fails closed until a provider is chosen (§7 open decision). The three prepared rate-limit
+   policies are mounted (`app.ts`). Verified by `tests/account.test.ts` (fast) +
+   `tests/integration/account.integration.test.ts` (real DB: invite→pending→accept→login;
+   reset→revoke-all→new password; single-use replay rejected).
+7. ~~**Audit logging** for login success/failure, user create, role/permission change, disable,
+   session revocation.~~ **DONE (Batch 4)** — durable `AuditLog` table + resilient `AuditService`
+   (`shared/audit/*`); events wired across auth/account/users services; metadata sanitized (never
+   passwords/tokens/tokenHash/cookies). `SESSION_REVOKED` action reserved for the future admin
+   disable/revoke endpoint; password-driven revocation is recorded via `sessionsRevoked` metadata.
+8. ~~**Structured operational logging** (replace `console.*`).~~ **DONE (Batch 4)** — dependency-free
+   structured JSON logger (`shared/logging/logger.ts`), request correlation id + HTTP lifecycle log,
+   all `console.*` removed, redaction of sensitive fields, `LOG_LEVEL` config.
 9. **Short-lived access token + refresh/session lifecycle.** Introduce a shorter access-token
    lifetime with an approved refresh/session lifecycle before production, unless a later architecture
    decision explicitly justifies another approach. Today `ACCESS_TOKEN_TTL='8h'` (`config/jwt.ts:17`);
@@ -157,6 +205,14 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 - ~~Pin `algorithms:['HS256']` (+ `iss`/`aud`) in `jwt.verify`.~~ **DONE (Batch 1)** — pinned +
   issuer/audience defined and validated (`authenticate.ts`, `config/jwt.ts`).
 - Login timing side-channel: dummy bcrypt compare when the user is not found.
+- **Batch 3** forgot-password timing side-channel: an existing active email does a token insert +
+  mail send while a miss returns immediately — same enumeration-oracle class as the login item above
+  (response BODY is already identical). Mitigate together with the login dummy-compare work.
+- **Batch 3** invitation issuance is non-atomic with user creation and does not swallow mail-send
+  errors: if a (future) real provider fails, the pending `User` + `AccountToken` already exist and
+  there is no re-invite endpoint to recover (create retries hit the 409). Design a re-invite /
+  resend endpoint (and/or wrap create+issue) when the email provider is chosen and account-disable
+  lands — the flow is not production-usable until a provider is wired regardless.
 - `409 "Email already in use"` enumeration on authenticated create (`users.service.ts:28`).
 - Centralized permission catalog / `requirePermission(...)` as modules grow.
 - Postgres RLS as a tenant-isolation backstop.

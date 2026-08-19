@@ -25,7 +25,11 @@ async function passwordHash(): Promise<string> {
  */
 export async function resetDatabase(): Promise<void> {
   assertTestDatabase(process.env['DATABASE_URL']);
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE "User", "Company" RESTART IDENTITY CASCADE');
+  // AuditLog is listed explicitly: its userId/companyId are LOOSE columns (no FK),
+  // so it is NOT reached by the User/Company cascade and must be truncated directly.
+  await prisma.$executeRawUnsafe(
+    'TRUNCATE TABLE "AuditLog", "User", "Company" RESTART IDENTITY CASCADE',
+  );
 }
 
 export interface SeededUser {

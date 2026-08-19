@@ -60,8 +60,15 @@ deployment target, which is **not yet chosen** — those stay unchecked until th
       lifecycle in place (currently `ACCESS_TOKEN_TTL='8h'`; **P1** — revocation today relies on
       DB-fresh `isActive`+`tokenVersion`, not a short TTL).
 - [ ] **Account lifecycle** — invitation/set-password, forgot, reset live; no plaintext-password
-      provisioning; account disable + revoke-all working.
-- [ ] **Audit logs** for security events; **operational logging** structured; sensitive data redacted.
+      provisioning; account disable + revoke-all working. *(Batch 3: invitation/forgot/reset
+      implemented + tested — random single-use SHA-256-hashed time-limited tokens, enumeration-safe,
+      `tokenVersion` bump on password change; plaintext provisioning removed. Box stays unchecked
+      until an email provider is wired for production — the delivery seam fails closed in prod.)*
+- [x] **Audit logs** for security events; **operational logging** structured; sensitive data redacted.
+      *(Batch 4: durable `AuditLog` table + resilient `AuditService` wired across auth/account/users;
+      dependency-free structured logger with redaction + request correlation replaces all `console.*`.
+      Deliberate deviation: `AuditLog.userId`/`companyId` are loose no-FK columns so the trail survives
+      user/company deletion. Monitoring/alerting ON these logs is still deployment-dependent — below.)*
 - [ ] **Monitoring/alerting** for auth-failure spikes and abnormal admin activity.
 - [ ] **Dependencies** — `npm audit` clean/triaged in CI; lockfiles committed; secret scanning on.
       *(Batch 2: 3 high findings triaged — one advisory, GHSA-ggr8-5vv4-36mx in `deepmerge-ts`, via
@@ -93,7 +100,7 @@ cited) · **Partial** · **Missing** · **Needs verification** (deployment-depen
 | **V6 Authentication — enumeration** | Partial | login safe; `409` on authed create leaks existence — `users.service.ts:28` |
 | **V6 Authentication — brute-force / rate limit** | Implemented | **Batch 2** — `express-rate-limit` on login (per-IP + email+IP failed-only + **per-email/account failed-only, IP-independent** for distributed attacks) & refresh `app.ts`, `shared/security/rateLimit.ts`; tests `tests/ratelimit.test.ts`. Configurable `TRUST_PROXY` (off by default). Shared prod store (Redis) + correct `trust proxy` hop count still Needs Verification |
 | **V6 Authentication — MFA** | Missing | none; **P1** for privileged roles |
-| **V6 Authentication — credential recovery/reset** | Missing | no forgot/reset; plaintext provisioning (P1) |
+| **V6 Authentication — credential recovery/reset** | Implemented | **Batch 3** — invitation/set-password + forgot/reset via random single-use SHA-256-hashed time-limited tokens; enumeration-safe; `tokenVersion` bump on change; plaintext provisioning removed — `modules/account/*`, `users.service.ts`; tests `tests/account.test.ts`, `tests/integration/account.integration.test.ts`. Email provider still to be wired (seam fails closed in prod) |
 | **V7 Session — binding & storage** | Implemented | HttpOnly cookie; no localStorage token — `cookie.ts`, `useAuthStore.ts` |
 | **V7 Session — termination / revocation** | Implemented | **Batch 1** — `tokenVersion` revoke-all + `isActive` checked every request `authenticate.ts` (per-device `jti` still future) |
 | **V7 Session — cookie attributes (Secure/SameSite)** | Partial | correct in code; `Secure` effective only under prod HTTPS (Needs verification) |
@@ -111,7 +118,7 @@ cited) · **Partial** · **Missing** · **Needs verification** (deployment-depen
 | **V13 Config — safe error handling** | Implemented | **Batch 1** — generic prod 500, detail server-side only `errorHandler.ts` |
 | **V14 Data protection — minimization & projection** | Implemented | `SafeUser` projections; no model over-exposure |
 | **V15 Secure coding / dependencies** | Partial | lockfiles committed; no CI `npm audit`/secret scan (P2). **Batch 2** triaged 3 high audit findings (one advisory via the devDependency Prisma CLI chain, tooling-only, not fixed — breaking downgrade only) — see `SECURITY_GAP_ANALYSIS.md` §9 |
-| **V16 Logging & audit** | Missing | `console.*` only; no audit events (P1) |
+| **V16 Logging & audit** | Implemented | **Batch 4** — structured logger + redaction (`shared/logging/logger.ts`), request correlation (`requestContext.ts`), durable audit trail (`shared/audit/*`, `AuditLog` model); all `console.*` removed; tests `tests/logger.test.ts`, `tests/audit.test.ts`, `tests/integration/audit.integration.test.ts` |
 | **V16 Monitoring** | Needs verification | no infrastructure yet |
 | **V17 WebRTC** | N/A | not used |
 | **API1 BOLA** | Implemented | tenant-scoped queries + tests |

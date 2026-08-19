@@ -101,3 +101,46 @@ export function createRefreshRateLimiter(cfg: RateLimitConfig['refresh']) {
     keyGenerator: ipKey,
   });
 }
+
+/**
+ * Forgot-password limiter — per `email + IP`, like `loginEmail`. The key is derived
+ * purely from `req.body`, so it behaves IDENTICALLY for existing and non-existing
+ * emails (enumeration-safe). Compositing the IP avoids letting one attacker throttle
+ * reset requests for a victim's address globally.
+ */
+export function createForgotPasswordRateLimiter(cfg: RateLimitConfig['forgotPassword']) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: cfg.windowMs,
+    limit: cfg.max,
+    keyGenerator: (req: Request): string =>
+      `${normalizeEmail((req.body as { email?: unknown } | undefined)?.email)}|${ipKey(req)}`,
+  });
+}
+
+/**
+ * Reset-password & invitation-accept limiters — per client IP.
+ *
+ * Deliberately keyed on IP, NOT the token: keying on the token would hand an
+ * attacker a FRESH bucket for every guessed value, making the limiter useless
+ * against enumeration. A 256-bit random token is itself unguessable, so per-IP is
+ * the meaningful abuse brake (bounding how fast one source can submit attempts).
+ * This is a strengthening of the catalog's "per token/IP" note, never a weakening.
+ */
+export function createResetPasswordRateLimiter(cfg: RateLimitConfig['passwordReset']) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: cfg.windowMs,
+    limit: cfg.max,
+    keyGenerator: ipKey,
+  });
+}
+
+export function createInvitationRateLimiter(cfg: RateLimitConfig['invitationActivation']) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: cfg.windowMs,
+    limit: cfg.max,
+    keyGenerator: ipKey,
+  });
+}

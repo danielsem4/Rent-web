@@ -9,7 +9,7 @@ import { makeUserRow, DEFAULT_PASSWORD, type UserRow } from './helpers/fixtures'
 const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
 
 vi.mock('../src/lib/prisma', () => ({
-  default: { user: { findUnique } },
+  default: { user: { findUnique }, auditLog: { create: vi.fn() } },
 }));
 
 import { createApp } from '../src/app';

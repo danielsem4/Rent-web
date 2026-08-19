@@ -26,6 +26,11 @@ if (!process.env['JWT_SECRET']) {
   process.env['JWT_SECRET'] = 'integration-test-secret';
 }
 
+// Silence structured operational logs so the suite output stays readable. Audit
+// records still go to the real DB (that is what these tests assert on); this only
+// suppresses the operational http_request/error lines.
+process.env['LOG_LEVEL'] = 'silent';
+
 // Effectively disable rate limiting for the integration suite — it logs in many
 // times against one app instance. Throttling behavior is proven in the fast
 // suite's dedicated ratelimit.test.ts.

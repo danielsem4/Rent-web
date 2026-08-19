@@ -10,10 +10,13 @@ import { Role } from '../src/shared/constants/roles';
 // the app's transitive import of `../src/lib/prisma` receives this fake; no DB
 // is ever contacted.
 // ---------------------------------------------------------------------------
-const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
+const { findUnique, auditCreate } = vi.hoisted(() => ({
+  findUnique: vi.fn(),
+  auditCreate: vi.fn(async () => ({})),
+}));
 
 vi.mock('../src/lib/prisma', () => ({
-  default: { user: { findUnique } },
+  default: { user: { findUnique }, auditLog: { create: auditCreate } },
 }));
 
 import { createApp } from '../src/app';
@@ -96,9 +99,7 @@ describe('account status', () => {
     expect(res.status).toBe(200);
   });
 
-  it('a disabled account w/ correct password is indistinguishable from bad creds (401); reason logged server-side', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
+  it('a disabled account w/ correct password is indistinguishable from bad creds (401); reason recorded in the audit trail', async () => {
     // Disabled account, CORRECT password.
     users = [await makeUserRow({ isActive: false })];
     const disabled = await request(app)
@@ -118,12 +119,15 @@ describe('account status', () => {
     expect(disabled.body).toEqual(wrongPw.body);
     expect(disabled.body.message).toBe('Invalid email or password');
 
-    // The real reason IS recorded server-side (audit), but never sent to the client.
-    const logged = warnSpy.mock.calls.flat().join(' ');
-    expect(logged).toMatch(/disabled/i);
+    // The real reason IS recorded server-side (audit trail), but never sent to
+    // the client. An AUTH_LOGIN_FAILED audit event carries reason 'account_disabled'.
+    const writes = auditCreate.mock.calls.map((c) => (c[0] as { data: Record<string, unknown> }).data);
+    const disabledEvent = writes.find(
+      (d) => (d['metadata'] as { reason?: string } | null)?.reason === 'account_disabled',
+    );
+    expect(disabledEvent).toBeDefined();
+    expect(disabledEvent!['action']).toBe('AUTH_LOGIN_FAILED');
     expect(JSON.stringify(disabled.body)).not.toMatch(/disabled/i);
-
-    warnSpy.mockRestore();
   });
 
   it('disabling an already-authenticated user fails their next protected request', async () => {

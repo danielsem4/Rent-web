@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AppError } from '../../shared/errors/AppError';
+import { buildAuditContext } from '../../shared/audit/auditLogger';
 import type { UsersService } from './users.service';
 import type { CreateUserDto, UpdateUserDto } from './users.schema';
 
@@ -36,7 +37,11 @@ export function createUsersController(service: UsersService) {
 
     async create(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        const user = await service.create(req.body as CreateUserDto, req.currentUser!);
+        const user = await service.create(
+          req.body as CreateUserDto,
+          req.currentUser!,
+          buildAuditContext(req),
+        );
         res.status(201).json({ user });
       } catch (err) {
         next(err);
@@ -46,7 +51,12 @@ export function createUsersController(service: UsersService) {
     async update(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
         const id = parseId(req.params.id);
-        const user = await service.update(id, req.body as UpdateUserDto, req.currentUser!);
+        const user = await service.update(
+          id,
+          req.body as UpdateUserDto,
+          req.currentUser!,
+          buildAuditContext(req),
+        );
         res.json({ user });
       } catch (err) {
         next(err);

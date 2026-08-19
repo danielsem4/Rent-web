@@ -27,7 +27,21 @@ export interface RateLimitConfig {
     windowMs: number;
     max: number;
   };
+  forgotPassword: {
+    windowMs: number;
+    max: number;
+  };
+  passwordReset: {
+    windowMs: number;
+    max: number;
+  };
+  invitationActivation: {
+    windowMs: number;
+    max: number;
+  };
 }
+
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 
 export interface AppConfig {
   nodeEnv: string;
@@ -38,6 +52,13 @@ export interface AppConfig {
   clientUrl: string | undefined;
   /** Rate-limit policy values (SECURITY_PRINCIPLES.md §15/§28). */
   rateLimit: RateLimitConfig;
+  /**
+   * Minimum operational log level (SECURITY_PRINCIPLES.md §19). Defaults to
+   * `info` in production, `debug` otherwise. The `logger` singleton reads this
+   * from the environment directly; validating it here fails fast on a typo and
+   * keeps it in the centralized config surface (§28).
+   */
+  logLevel: LogLevel;
   /**
    * Number of trusted reverse-proxy hops (`app.set('trust proxy', n)`).
    * `undefined` = OFF (secure default): `X-Forwarded-For` is ignored and
@@ -158,12 +179,43 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       windowMs: readPositiveInt(env, 'RATE_LIMIT_REFRESH_WINDOW_MS', rl.refresh.windowMs, errors),
       max: readPositiveInt(env, 'RATE_LIMIT_REFRESH_MAX', rl.refresh.max, errors),
     },
+    forgotPassword: {
+      windowMs: readPositiveInt(
+        env,
+        'RATE_LIMIT_FORGOT_PASSWORD_WINDOW_MS',
+        rl.forgotPassword.windowMs,
+        errors,
+      ),
+      max: readPositiveInt(env, 'RATE_LIMIT_FORGOT_PASSWORD_MAX', rl.forgotPassword.max, errors),
+    },
+    passwordReset: {
+      windowMs: readPositiveInt(
+        env,
+        'RATE_LIMIT_PASSWORD_RESET_WINDOW_MS',
+        rl.passwordReset.windowMs,
+        errors,
+      ),
+      max: readPositiveInt(env, 'RATE_LIMIT_PASSWORD_RESET_MAX', rl.passwordReset.max, errors),
+    },
+    invitationActivation: {
+      windowMs: readPositiveInt(
+        env,
+        'RATE_LIMIT_INVITATION_WINDOW_MS',
+        rl.invitationActivation.windowMs,
+        errors,
+      ),
+      max: readPositiveInt(env, 'RATE_LIMIT_INVITATION_MAX', rl.invitationActivation.max, errors),
+    },
   };
 
   // TRUST_PROXY — optional. Absent => undefined (OFF, secure default). When
   // present it must be a positive integer hop count (fail closed otherwise); we
   // never accept `true`, which would let any client spoof X-Forwarded-For.
   const trustProxy = readOptionalPositiveInt(env, 'TRUST_PROXY', errors);
+
+  // LOG_LEVEL — optional; must be a known level when provided (fail closed on a
+  // typo rather than silently falling back). Defaults by environment.
+  const logLevel = readLogLevel(env, isProduction ? 'info' : 'debug', errors);
 
   if (errors.length > 0) {
     // Names only — never the offending values.
@@ -180,7 +232,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     clientUrl,
     rateLimit,
     trustProxy,
+    logLevel,
   };
+}
+
+const LOG_LEVELS: readonly LogLevel[] = ['debug', 'info', 'warn', 'error', 'silent'];
+
+/**
+ * Read an optional log level. Falls back to `fallback` when unset/empty; pushes
+ * a (value-free) error when present but not a recognized level.
+ */
+function readLogLevel(env: NodeJS.ProcessEnv, fallback: LogLevel, errors: string[]): LogLevel {
+  const raw = env['LOG_LEVEL'];
+  if (raw === undefined || raw === '') {
+    return fallback;
+  }
+  if (!(LOG_LEVELS as readonly string[]).includes(raw)) {
+    errors.push(`LOG_LEVEL must be one of: ${LOG_LEVELS.join(', ')}`);
+    return fallback;
+  }
+  return raw as LogLevel;
 }
 
 /**

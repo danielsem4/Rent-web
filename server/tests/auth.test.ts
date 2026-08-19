@@ -18,7 +18,7 @@ import { ROLE_VALUES, Role } from '../src/shared/constants/roles';
 const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
 
 vi.mock('../src/lib/prisma', () => ({
-  default: { user: { findUnique } },
+  default: { user: { findUnique }, auditLog: { create: vi.fn() } },
 }));
 
 // Imported AFTER the mock is registered (hoisting guarantees the order).

@@ -10,7 +10,7 @@ import { Role } from '../src/shared/constants/roles';
 const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
 
 vi.mock('../src/lib/prisma', () => ({
-  default: { user: { findUnique } },
+  default: { user: { findUnique }, auditLog: { create: vi.fn() } },
 }));
 
 import { createApp } from '../src/app';

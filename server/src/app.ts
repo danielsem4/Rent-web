@@ -2,15 +2,31 @@ import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import { authRouter } from './modules/auth/auth.routes';
-import { usersRouter } from './modules/users/users.routes';
+import { createAuthRouter } from './modules/auth/auth.routes';
+import { createUsersRouter } from './modules/users/users.routes';
+import { createAccountRouter } from './modules/account/account.routes';
 import { errorHandler } from './shared/middlewares/errorHandler';
+import { requestContext } from './shared/middlewares/requestContext';
+import { requestLogger } from './shared/middlewares/requestLogger';
 import { csrfOriginCheck } from './shared/middlewares/csrf';
+import { AuditService } from './shared/audit/audit.service';
+import { AuditLogRepository } from './shared/audit/audit.repository';
+import type { IAuditLogger } from './shared/audit/auditLogger';
 import {
   createLoginRateLimiters,
   createRefreshRateLimiter,
+  createForgotPasswordRateLimiter,
+  createResetPasswordRateLimiter,
+  createInvitationRateLimiter,
 } from './shared/security/rateLimit';
+import { ConsoleAccountMailer, type AccountMailer } from './shared/notifications/mailer';
 import { loadConfig, type AppConfig } from './shared/config/env';
+
+/** Optional overrides for tests (e.g. a capturing mailer or audit logger). */
+export interface AppOverrides {
+  mailer?: AccountMailer;
+  auditLogger?: IAuditLogger;
+}
 
 /**
  * Builds and configures the Express application.
@@ -28,7 +44,10 @@ import { loadConfig, type AppConfig } from './shared/config/env';
  * mounted directly by Supertest in tests. The process bootstrap lives in
  * `index.ts`.
  */
-export function createApp(config: AppConfig = loadConfig()): Application {
+export function createApp(
+  config: AppConfig = loadConfig(),
+  overrides: AppOverrides = {},
+): Application {
   const app = express();
 
   // Trust proxy (SECURITY_PRINCIPLES.md §15) — deployment-dependent, OFF by
@@ -42,6 +61,12 @@ export function createApp(config: AppConfig = loadConfig()): Application {
 
   // The single validated allowed origin — shared by CORS and the CSRF check.
   const allowedOrigin = config.clientUrl ?? 'http://localhost:5173';
+
+  // Request correlation + operational logging (SECURITY_PRINCIPLES.md §19).
+  // First so every downstream log line carries a `requestId`; after `trust proxy`
+  // so `req.ip` (logged by requestLogger) reflects the configured proxy trust.
+  app.use(requestContext);
+  app.use(requestLogger);
 
   // Middleware
   app.use(helmet());
@@ -72,15 +97,37 @@ export function createApp(config: AppConfig = loadConfig()): Application {
   // rejected cheaply, after body parsing so the email key can read req.body.
   app.use('/api/auth/login', ...createLoginRateLimiters(config.rateLimit.login));
   app.use('/api/auth/refresh', createRefreshRateLimiter(config.rateLimit.refresh));
+  // Account-lifecycle limiters (SECURITY_PRINCIPLES.md §15). forgot-password keys
+  // on email+IP (enumeration-safe, body-derived); reset/invitation key on IP —
+  // see `security/rateLimit.ts` for why per-IP (not per-token) is the meaningful
+  // brake against token guessing.
+  app.use('/api/auth/forgot-password', createForgotPasswordRateLimiter(config.rateLimit.forgotPassword));
+  app.use('/api/auth/reset-password', createResetPasswordRateLimiter(config.rateLimit.passwordReset));
+  app.use(
+    '/api/auth/invitation/accept',
+    createInvitationRateLimiter(config.rateLimit.invitationActivation),
+  );
 
   // Health check route
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Module routes
-  app.use('/api/auth', authRouter);
-  app.use('/api/users', usersRouter);
+  // Account-mail delivery seam. Dev default logs the link (non-prod only); tests
+  // may inject a capturing mailer. Client URL reuses the single validated origin.
+  const mailer = overrides.mailer ?? new ConsoleAccountMailer();
+
+  // Audit logging seam (SECURITY_PRINCIPLES.md §18). Default persists to the
+  // AuditLog table; tests may inject a capturing/no-op logger. Built once and
+  // shared across the routers (it is stateless — the repository goes through the
+  // prisma singleton). Resilient: a write failure never breaks a request.
+  const auditLogger = overrides.auditLogger ?? new AuditService(new AuditLogRepository());
+
+  // Module routes. The account router mounts additional POST endpoints under
+  // /api/auth (invitation/accept, forgot-password, reset-password).
+  app.use('/api/auth', createAuthRouter({ auditLogger }));
+  app.use('/api/auth', createAccountRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
+  app.use('/api/users', createUsersRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
 
   // Error handler (must be last)
   app.use(errorHandler);
