@@ -64,7 +64,7 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 | Lockfiles committed | ✅ | both `package-lock.json` |
 | Safe error responses (500 handler) | ✅ | **Batch 1** — generic `500` in prod; full detail logged server-side only `errorHandler.ts` |
 | Account disablement / `isActive` | ✅ | **Batch 1** — `User.isActive`; login denied via generic 401 (enumeration-safe, reason logged server-side) + denied next request `auth.service.ts`, `authenticate.ts` |
-| Session revocation / `tokenVersion` / revoke-all | ✅ | **Batch 1** — `User.tokenVersion` checked every request; bump = revoke-all `authenticate.ts`. **Batch 3** wired the writer: every password set/change bumps it `modules/account/account.repository.ts` |
+| Session revocation / `tokenVersion` / revoke-all | ✅ | **Batch 1** — `User.tokenVersion` checked every request; bump = revoke-all `authenticate.ts`. **Batch 3** wired the writer: every password set/change bumps it `modules/account/account.repository.ts`. **Batch 5** — per-session revocation via stateful `RefreshToken` records; reuse detection revokes the whole family + bumps `tokenVersion` `modules/auth/refreshToken.repository.ts` |
 | Rate limiting / brute-force protection | ✅ | **Batch 2** — `express-rate-limit` behind `shared/security/rateLimit.ts`; login (IP + email+IP failed + **per-email/account failed, IP-independent**) & refresh mounted `app.ts`; values `config/rateLimit.ts`. Account-level layer catches distributed attacks; threshold well above email+IP to bound account-DoS. Shared prod store + `trust proxy` still 🔍 |
 | CSRF explicit design (Origin/Referer check) | ✅ | **Batch 2** — server-side Origin/Referer validation on authenticated mutations, fail-closed `shared/middlewares/csrf.ts`; layered with SameSite. CORS is not relied on |
 | Startup config validation / fail-fast on weak secret | ✅ | **Batch 1** — `config/env.ts` `loadConfig` + `index.ts` fail-fast |
@@ -75,7 +75,7 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 | Audit logging | ✅ | **Batch 4** — see the "Audit logging (security events)" row above |
 | Structured operational logging | ✅ | **Batch 4** — see the "Structured operational logging" row above |
 | JWT algorithm pin / iss / aud | ✅ | **Batch 1** — pinned HS256 + issuer/audience `authenticate.ts`, `config/jwt.ts` |
-| Short-lived access-token TTL + refresh rotation | 🟡 | 8h TTL — immediate revocation via `isActive`+`tokenVersion`, not a short TTL; shorten before prod — **P1** `config/jwt.ts:17` |
+| Short-lived access-token TTL + refresh rotation | ✅ | **Batch 5** — `ACCESS_TOKEN_TTL='15m'` `config/jwt.ts`; stateful rotating refresh token (7d, hashed at rest) with reuse detection `modules/auth/refreshToken.repository.ts` + `/api/auth/refresh` `modules/auth/auth.service.ts`; refresh cookie HttpOnly/Secure(prod)/SameSite scoped to `/api/auth` `shared/utils/cookie.ts` |
 | Login timing side-channel mitigation | ❌ | no dummy compare on missing user `auth.service.ts:24-32` — **P2** |
 | Centralized permission catalog / `requirePermission` | ❌ | role gate + manual scoping only — **P2** |
 | DB-level tenant enforcement (RLS) | ❌ | per-query discipline only — **P2** |
@@ -143,6 +143,26 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 > fast + integration suites green. **Not** done here (still P1): MFA (item 5) and short-lived access
 > token + refresh rotation (item 9). Monitoring/alerting on these logs remains deployment-dependent
 > (§19 — Needs Verification, not claimed).
+>
+> **Remediation Batch 5 (2026-08-20) — DONE:** short-lived access tokens + stateful refresh-token
+> rotation with reuse detection (P1 item 9). `ACCESS_TOKEN_TTL` lowered 8h → **15m** (`config/jwt.ts`).
+> New `RefreshToken` model/migration `20260819210004_refresh_token_lifecycle` — first String/UUID PK
+> in the schema (deliberate, spec) + `familyId` lineage; only the SHA-256 hash is stored. `/api/auth/refresh`
+> no longer sits behind `authenticate` (the 15m access cookie is usually expired at refresh time) —
+> the HttpOnly/Secure(prod)/SameSite refresh cookie (scoped to `/api/auth`) is the credential. On a
+> valid token the service rotates in a `$transaction` (retire old, issue successor in the same family)
+> and re-signs the 15m access token from the CURRENT DB row. **Reuse detection:** a replayed
+> revoked/expired token (or a lost single-use race) revokes the whole family AND bumps `tokenVersion`
+> (revoke-all), so no already-issued access token survives the breach; audited as `SESSION_REVOKED`.
+> Password reset/accept now revoke all refresh tokens atomically inside the existing
+> `consumeTokenAndSetPassword` transaction. Logout best-effort revokes the presented token (audited
+> `AUTH_LOGOUT`). The CSRF Origin/Referer check was extended to fire on the refresh cookie too (the
+> access cookie is gone at refresh time). No client changes needed — the existing axios 401→refresh→retry
+> interceptor is transparent to rotation. Verified by `tests/refreshToken.test.ts` (fast service unit:
+> rotation, reuse, expiry, disabled, single-use race, login issuance, logout) +
+> `tests/integration/refreshToken.integration.test.ts` (real DB: rotation, full-family kill on reuse,
+> expired, disabled, password-reset revocation); `npm run build` clean; full fast (127) + integration
+> (38) suites green. **Remaining P1:** MFA (item 5).
 
 ### P0 — immediate code defect
 - ~~**500 error handler leaks internals.**~~ **FIXED (Batch 1)** — unexpected errors now return
@@ -194,12 +214,13 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 8. ~~**Structured operational logging** (replace `console.*`).~~ **DONE (Batch 4)** — dependency-free
    structured JSON logger (`shared/logging/logger.ts`), request correlation id + HTTP lifecycle log,
    all `console.*` removed, redaction of sensitive fields, `LOG_LEVEL` config.
-9. **Short-lived access token + refresh/session lifecycle.** Introduce a shorter access-token
-   lifetime with an approved refresh/session lifecycle before production, unless a later architecture
-   decision explicitly justifies another approach. Today `ACCESS_TOKEN_TTL='8h'` (`config/jwt.ts:17`);
-   immediate authorization/account revocation is provided by DB-fresh `isActive` + `tokenVersion`
-   (+ role/company) checks, **not** by a short TTL. The "short-lived token" principle is **not**
-   marked implemented while the access-token TTL remains 8h.
+9. ~~**Short-lived access token + refresh/session lifecycle.**~~ **DONE (Batch 5)** —
+   `ACCESS_TOKEN_TTL='15m'` (`config/jwt.ts`) paired with a stateful, rotating refresh token (7d,
+   SHA-256-hashed at rest, HttpOnly/Secure/SameSite cookie scoped to `/api/auth`) with **reuse
+   detection**: a replayed revoked/expired token revokes the whole `familyId` and bumps `tokenVersion`.
+   Rotation re-signs the access token from the current DB row; password reset revokes all refresh
+   tokens; logout revokes the presented one (`modules/auth/refreshToken.repository.ts`,
+   `auth.service.ts`). Verified by `tests/refreshToken.test.ts` + `tests/integration/refreshToken.integration.test.ts`.
 
 ### P2 — defense-in-depth / maturity
 - ~~Pin `algorithms:['HS256']` (+ `iss`/`aud`) in `jwt.verify`.~~ **DONE (Batch 1)** — pinned +
@@ -230,9 +251,13 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 > `tokenVersion` on `User`; `authenticate` denies missing/disabled/version-mismatched tokens and
 > verifies with pinned HS256 + issuer/audience; `sign` embeds `tokenVersion`; login returns a generic
 > enumeration-safe 401 for a disabled account (real reason logged server-side); `refresh` re-checks
-> status. **Not** done (deliberate, deferred — tracked as **P1**, see §3 item 9): short-lived-access +
-> refresh-token rotation (item 3 — TTL stays **8h**), per-device `jti` revocation (item 5), and the
-> lifecycle/email flows (item 6). The pre-batch state is retained below for reference.
+> status. The pre-batch state is retained below for reference.
+>
+> **Batch 3 (2026-08-19)** added the lifecycle/email flows (item 6). **Batch 5 (2026-08-20)** applied
+> item 3: `ACCESS_TOKEN_TTL` is now **15m** with a stateful, rotating refresh token (`RefreshToken`
+> model, 7d, hashed at rest) + reuse detection (replay ⇒ family revoke + `tokenVersion` bump). The
+> "8h" figures in the reference block below are historical (pre-Batch-5). Still deferred: per-device
+> `jti` denylist (item 5, optional/later) and MFA (§3 item 5).
 
 **Pre-Batch-1 state (for reference):**
 

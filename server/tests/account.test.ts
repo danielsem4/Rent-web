@@ -26,6 +26,8 @@ vi.mock('../src/lib/prisma', () => {
       create: h.tokenCreate,
     },
     auditLog: { create: vi.fn() },
+    // Batch 5: consumeTokenAndSetPassword now also revokes refresh tokens in the tx.
+    refreshToken: { updateMany: vi.fn(async () => ({ count: 0 })) },
     // Callback form: run against the same mocked client so the inner writes are spied.
     $transaction: async (cb: (tx: unknown) => Promise<unknown>) => cb(client),
   };

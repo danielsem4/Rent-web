@@ -12,6 +12,7 @@ export const AUDIT_ACTIONS = {
   AUTH_LOGIN_SUCCESS: 'AUTH_LOGIN_SUCCESS',
   AUTH_LOGIN_FAILED: 'AUTH_LOGIN_FAILED',
   AUTH_TOKEN_REFRESH: 'AUTH_TOKEN_REFRESH',
+  AUTH_LOGOUT: 'AUTH_LOGOUT',
   // User administration
   USER_CREATED: 'USER_CREATED',
   USER_UPDATED: 'USER_UPDATED',
@@ -22,8 +23,9 @@ export const AUDIT_ACTIONS = {
   PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
   PASSWORD_RESET_COMPLETED: 'PASSWORD_RESET_COMPLETED',
   // Session
-  // Reserved for a future admin disable/revoke endpoint (not built yet — account
-  // enable/disable has no handler today). Revocation triggered by a password
+  // Emitted by refresh-token reuse detection (Batch 5): a replayed revoked/expired
+  // token revokes the whole family + bumps tokenVersion. Also the action a future
+  // admin disable/revoke endpoint should emit. Revocation triggered by a password
   // set/change is captured via `sessionsRevoked` metadata on the password events.
   SESSION_REVOKED: 'SESSION_REVOKED',
 } as const;

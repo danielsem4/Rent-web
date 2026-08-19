@@ -63,6 +63,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   accountTokens AccountToken[]
+  refreshTokens RefreshToken[]
 
   @@index([email])
   @@index([companyId])
@@ -85,6 +86,33 @@ model AccountToken {
   createdAt DateTime         @default(now())
 
   @@index([userId])
+}
+
+// ─── RefreshToken ────────────────────────────────────────
+// Stateful, rotating refresh tokens (SECURITY_PRINCIPLES.md §4 — the sanctioned
+// per-session server-side revocation record). Only the SHA-256 HASH of the raw
+// token is stored; the raw token lives only in an HttpOnly/Secure/SameSite cookie
+// and is never persisted or logged (§7/§18). Each login starts a token FAMILY;
+// every /refresh rotates (old row `isRevoked:true`, new row same `familyId`). If a
+// revoked/expired token is replayed (reuse), the WHOLE family is revoked and the
+// user's `tokenVersion` is bumped (revoke-all) — breach mitigation.
+//
+// DELIBERATE deviations from the repo's Int-autoincrement convention: `id` is a
+// String UUID and `familyId` is a String UUID (rotation lineage). `userId` stays
+// Int (FK to User.id) with onDelete: Cascade (rows die with the user).
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId  String
+  isRevoked Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([familyId])
 }
 
 // ─── AuditLog ────────────────────────────────────────────

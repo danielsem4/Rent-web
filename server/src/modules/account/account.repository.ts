@@ -111,6 +111,13 @@ export class AccountRepository implements IAccountRepository {
             ...(activate ? { isActive: true } : {}),
           },
         });
+        // Also revoke all stateful refresh tokens (Batch 5) in the SAME transaction,
+        // so a password reset atomically kills both the access-token generation
+        // (via tokenVersion) and every outstanding refresh-token family.
+        await tx.refreshToken.updateMany({
+          where: { userId, isRevoked: false },
+          data: { isRevoked: true },
+        });
       });
       return true;
     } catch (err) {

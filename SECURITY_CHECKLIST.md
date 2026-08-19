@@ -56,9 +56,10 @@ deployment target, which is **not yet chosen** — those stay unchecked until th
       failed-only (IP-independent, catches distributed attacks) — plus refresh, on an in-memory store;
       box stays unchecked until a shared store (Redis) + correct `trust proxy` are wired for the
       chosen multi-instance deployment.)*
-- [ ] **Short access-token TTL** — shorter access-token lifetime + an approved refresh/session
-      lifecycle in place (currently `ACCESS_TOKEN_TTL='8h'`; **P1** — revocation today relies on
-      DB-fresh `isActive`+`tokenVersion`, not a short TTL).
+- [x] **Short access-token TTL** — shorter access-token lifetime + an approved refresh/session
+      lifecycle in place. *(Batch 5: `ACCESS_TOKEN_TTL='15m'` + stateful rotating refresh token (7d,
+      hashed at rest, SameSite cookie scoped to `/api/auth`) with reuse detection — replay revokes the
+      whole family + bumps `tokenVersion`. `config/jwt.ts`, `modules/auth/refreshToken.repository.ts`.)*
 - [ ] **Account lifecycle** — invitation/set-password, forgot, reset live; no plaintext-password
       provisioning; account disable + revoke-all working. *(Batch 3: invitation/forgot/reset
       implemented + tested — random single-use SHA-256-hashed time-limited tokens, enumeration-safe,
@@ -102,9 +103,9 @@ cited) · **Partial** · **Missing** · **Needs verification** (deployment-depen
 | **V6 Authentication — MFA** | Missing | none; **P1** for privileged roles |
 | **V6 Authentication — credential recovery/reset** | Implemented | **Batch 3** — invitation/set-password + forgot/reset via random single-use SHA-256-hashed time-limited tokens; enumeration-safe; `tokenVersion` bump on change; plaintext provisioning removed — `modules/account/*`, `users.service.ts`; tests `tests/account.test.ts`, `tests/integration/account.integration.test.ts`. Email provider still to be wired (seam fails closed in prod) |
 | **V7 Session — binding & storage** | Implemented | HttpOnly cookie; no localStorage token — `cookie.ts`, `useAuthStore.ts` |
-| **V7 Session — termination / revocation** | Implemented | **Batch 1** — `tokenVersion` revoke-all + `isActive` checked every request `authenticate.ts` (per-device `jti` still future) |
+| **V7 Session — termination / revocation** | Implemented | **Batch 1** — `tokenVersion` revoke-all + `isActive` checked every request `authenticate.ts`. **Batch 5** — per-session `RefreshToken` records; rotation + reuse detection (family revoke + `tokenVersion` bump); logout + password-reset revoke refresh tokens `modules/auth/refreshToken.repository.ts` |
 | **V7 Session — cookie attributes (Secure/SameSite)** | Partial | correct in code; `Secure` effective only under prod HTTPS (Needs verification) |
-| **V7 Session — token lifetime** | Partial | 8h access-token TTL — revocation via `isActive`+`tokenVersion`, not short TTL; **P1** shorten + refresh/session lifecycle before prod `config/jwt.ts:17` |
+| **V7 Session — token lifetime** | Implemented | **Batch 5** — 15m access token + rotating 7d refresh token with reuse detection; `config/jwt.ts`, `modules/auth/refreshToken.repository.ts`, `auth.service.ts`; tests `tests/refreshToken.test.ts`, `tests/integration/refreshToken.integration.test.ts` |
 | **V8 Authorization — function level** | Implemented | `authenticate`+`authorize(...roles)` — `authorize.ts`, `users.routes.ts:22` |
 | **V8 Authorization — object/tenant (BOLA/IDOR)** | Implemented | query-level `companyId` scoping; tested — `users.repository.ts`, `tenant-isolation.test.ts` |
 | **V8 Authorization — centralized policy** | Partial | per-module role gate; no permission catalog (P2) |

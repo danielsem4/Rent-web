@@ -4,8 +4,11 @@ import { makeUserRow, signToken, type UserRow } from './helpers/fixtures';
 import { Role } from '../src/shared/constants/roles';
 
 // ---------------------------------------------------------------------------
-// Prisma isolation — findUnique-only mock is enough: the authenticated endpoint
-// under test (POST /api/auth/refresh) only reads the user.
+// Prisma isolation. The representative state-changing endpoint under test is
+// POST /api/auth/logout (Batch 5: /refresh now requires a valid refresh cookie,
+// so logout is the clean cookie-bearing mutation for exercising the CSRF check
+// itself). logout without a refresh cookie touches no refresh rows; it only
+// writes an audit row. GET /api/auth/me uses user.findUnique via `authenticate`.
 // ---------------------------------------------------------------------------
 const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
 
@@ -40,20 +43,21 @@ function sessionCookie(): string[] {
 }
 
 describe('CSRF — Origin/Referer validation on authenticated state-changing requests', () => {
-  it('allows a same-origin authenticated mutation (200 + fresh cookie)', async () => {
+  it('allows a same-origin authenticated mutation (200, processes the request)', async () => {
     const res = await request(app)
-      .post('/api/auth/refresh')
+      .post('/api/auth/logout')
       .set('Cookie', sessionCookie())
       .set('Origin', ALLOWED_ORIGIN);
 
     expect(res.status).toBe(200);
+    // The request was processed (logout emits a Set-Cookie clearing the token).
     const setCookie = res.headers['set-cookie'] as unknown as string[];
     expect(setCookie.join(';')).toMatch(/(^|;)\s*token=/);
   });
 
   it('accepts a valid same-origin Referer when Origin is absent', async () => {
     const res = await request(app)
-      .post('/api/auth/refresh')
+      .post('/api/auth/logout')
       .set('Cookie', sessionCookie())
       .set('Referer', `${ALLOWED_ORIGIN}/dashboard`);
 
@@ -65,7 +69,7 @@ describe('CSRF — Origin/Referer validation on authenticated state-changing req
     // would) and a cross-site Origin. The SERVER itself rejects it with 403 —
     // this is server-side enforcement, independent of CORS.
     const res = await request(app)
-      .post('/api/auth/refresh')
+      .post('/api/auth/logout')
       .set('Cookie', sessionCookie())
       .set('Origin', EVIL_ORIGIN);
 
@@ -76,7 +80,7 @@ describe('CSRF — Origin/Referer validation on authenticated state-changing req
   });
 
   it('rejects an authenticated mutation with NO Origin and NO Referer (fail closed)', async () => {
-    const res = await request(app).post('/api/auth/refresh').set('Cookie', sessionCookie());
+    const res = await request(app).post('/api/auth/logout').set('Cookie', sessionCookie());
 
     expect(res.status).toBe(403);
     expect(res.body.message).toBe(CSRF_FAILED);
@@ -84,7 +88,7 @@ describe('CSRF — Origin/Referer validation on authenticated state-changing req
 
   it('rejects an authenticated mutation whose Referer origin is cross-site (403)', async () => {
     const res = await request(app)
-      .post('/api/auth/refresh')
+      .post('/api/auth/logout')
       .set('Cookie', sessionCookie())
       .set('Referer', `${EVIL_ORIGIN}/attack`);
 
@@ -104,7 +108,7 @@ describe('CSRF — Origin/Referer validation on authenticated state-changing req
     // executing a forged write. Prove the server rejects the cross-origin
     // mutation itself (403 from the CSRF middleware), not via any CORS behavior.
     const res = await request(app)
-      .post('/api/auth/refresh')
+      .post('/api/auth/logout')
       .set('Cookie', sessionCookie())
       .set('Origin', EVIL_ORIGIN);
 

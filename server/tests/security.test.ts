@@ -16,7 +16,11 @@ const { findUnique, auditCreate } = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/lib/prisma', () => ({
-  default: { user: { findUnique }, auditLog: { create: auditCreate } },
+  default: {
+    user: { findUnique },
+    auditLog: { create: auditCreate },
+    refreshToken: { create: vi.fn() },
+  },
 }));
 
 import { createApp } from '../src/app';

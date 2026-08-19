@@ -18,7 +18,14 @@ import { ROLE_VALUES, Role } from '../src/shared/constants/roles';
 const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
 
 vi.mock('../src/lib/prisma', () => ({
-  default: { user: { findUnique }, auditLog: { create: vi.fn() } },
+  // login now also mints a refresh token (refreshToken.create); logout without a
+  // refresh cookie touches no refresh rows. Detailed rotation/reuse behavior is
+  // exercised in refreshToken.test.ts (service unit) + the integration suite.
+  default: {
+    user: { findUnique },
+    auditLog: { create: vi.fn() },
+    refreshToken: { create: vi.fn() },
+  },
 }));
 
 // Imported AFTER the mock is registered (hoisting guarantees the order).
@@ -177,23 +184,10 @@ describe('GET /api/auth/me', () => {
 });
 
 describe('POST /api/auth/refresh', () => {
-  // Case 8 — documents CURRENT behavior: it is an authenticated route that
-  // rotates the token cookie and returns only a message (no user payload).
-  it('with a valid session returns 200 and a fresh token cookie', async () => {
-    const token = signToken(1, 'COMPANY_MANAGER');
-    const res = await request(app)
-      .post('/api/auth/refresh')
-      .set('Cookie', [`token=${token}`])
-      .set('Origin', ORIGIN);
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ message: 'Token refreshed' });
-    const setCookie = res.headers['set-cookie'] as unknown as string[];
-    expect(setCookie).toBeDefined();
-    expect(setCookie.join(';')).toMatch(/(^|;)\s*token=/);
-  });
-
-  it('without authentication returns 401', async () => {
+  // Batch 5: the REFRESH cookie is the credential (no `authenticate` guard). With
+  // no refresh cookie present, refresh is denied. Full rotation/reuse/expiry
+  // behavior lives in refreshToken.test.ts + refreshToken.integration.test.ts.
+  it('with no refresh cookie returns 401', async () => {
     const res = await request(app).post('/api/auth/refresh');
     expect(res.status).toBe(401);
     expect(res.body.message).toBe(AUTH_REQUIRED);
@@ -393,36 +387,7 @@ describe('Deleted user', () => {
   });
 });
 
-describe('POST /api/auth/refresh — re-issues from current DB state', () => {
-  // Cases 9, 10 & 11: the refreshed token must carry the CURRENT DB role and
-  // companyId, never the old token's stale claims.
-  it('signs the refreshed token from the DB role/companyId, not the stale claims', async () => {
-    // DB says the user is now a COMPANY_WORKER in company 5...
-    users = [await makeUserRow({ id: 1, role: Role.COMPANY_WORKER, companyId: 5 })];
-    // ...but the presented token still claims COMPANY_MANAGER / company 1.
-    const stale = signToken(1, Role.COMPANY_MANAGER, 1);
-
-    const res = await request(app)
-      .post('/api/auth/refresh')
-      .set('Cookie', [`token=${stale}`])
-      .set('Origin', ORIGIN);
-
-    expect(res.status).toBe(200);
-    const decoded = tokenFromSetCookie(res.headers['set-cookie'] as unknown as string[]);
-    expect(decoded.role).toBe('COMPANY_WORKER');
-    expect(decoded.companyId).toBe(5);
-  });
-
-  it('rejects refresh for a deleted user', async () => {
-    users = [];
-    const token = signToken(1, Role.COMPANY_MANAGER, 1);
-
-    const res = await request(app)
-      .post('/api/auth/refresh')
-      .set('Cookie', [`token=${token}`])
-      .set('Origin', ORIGIN);
-
-    expect(res.status).toBe(401);
-    expect(res.body.message).toBe(AUTH_REQUIRED);
-  });
-});
+// Refresh-token rotation re-signs the access token from the CURRENT DB row (not
+// stale claims), reuse detection, expiry, disabled-account denial, and the
+// single-use race are all covered as a service unit in refreshToken.test.ts and
+// end-to-end against a real DB in refreshToken.integration.test.ts.
