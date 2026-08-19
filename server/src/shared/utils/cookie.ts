@@ -1,4 +1,5 @@
 import type { CookieOptions } from 'express';
+import { ACCESS_TOKEN_TTL_MS } from '../config/jwt';
 
 export const AUTH_COOKIE_NAME = 'token';
 
@@ -8,7 +9,8 @@ export const AUTH_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: isProd,
   sameSite: isProd ? 'strict' : 'lax',
-  maxAge: 8 * 60 * 60 * 1000, // 8 hours
+  // Cookie lifetime tracks the access-token TTL — single source of truth in config/jwt.
+  maxAge: ACCESS_TOKEN_TTL_MS,
   path: '/',
 };
 

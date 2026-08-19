@@ -46,6 +46,12 @@ model User {
   role         Role
   companyId    Int
   company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Account status: a disabled user cannot authenticate and any already-issued
+  // token is rejected on its next protected request (authenticate re-checks this).
+  isActive     Boolean  @default(true)
+  // Security/session version. Incrementing it invalidates every previously issued
+  // JWT for this user (revoke-all). Tokens carry the version they were issued at.
+  tokenVersion Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

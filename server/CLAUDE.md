@@ -2,6 +2,13 @@
 
 Express 5 + TypeScript (CommonJS) + Prisma 7 (PostgreSQL, driver-adapter). Modular feature slices with strict per-module layering. Node 18+.
 
+> 🔒 **Security:** `../SECURITY_PRINCIPLES.md` is binding and **mandatory reading** before any
+> change touching authentication, authorization, users, permissions, sensitive data, APIs, the
+> DB, secrets, or logging. See `../SECURITY_GAP_ANALYSIS.md` for current status/findings and
+> `../SECURITY_CHECKLIST.md` for the per-PR checklist. Enforce **deny-by-default**, tenant
+> isolation via `companyId` from `req.currentUser` (never the body), and **no silent security
+> weakening**.
+
 ## Stack (do not swap without discussion)
 
 - **Runtime/lang**: Node.js, TypeScript compiled to CommonJS (`tsc`, target ES2020, `strict`).
@@ -10,7 +17,7 @@ Express 5 + TypeScript (CommonJS) + Prisma 7 (PostgreSQL, driver-adapter). Modul
 - **Validation**: Zod 4.
 - **Auth**: JWT in an httpOnly cookie (`token`), password hashing with `bcrypt`.
 - **Security/parsing**: `helmet`, `cors` (credentials), `cookie-parser`.
-- Dev: `ts-node` + `nodemon`. No test framework / linter configured by default.
+- Dev: `ts-node` + `nodemon`. **Testing: Vitest** — a fast unit suite (Prisma mocked) and an integration suite (real PostgreSQL + Supertest); see "Testing" below. No linter configured by default.
 
 ## Folder structure
 

@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { authRouter } from './modules/auth/auth.routes';
 import { usersRouter } from './modules/users/users.routes';
 import { errorHandler } from './shared/middlewares/errorHandler';
+import { loadConfig, type AppConfig } from './shared/config/env';
 
 /**
  * Builds and configures the Express application.
@@ -17,14 +18,18 @@ import { errorHandler } from './shared/middlewares/errorHandler';
  * mounted directly by Supertest in tests. The process bootstrap lives in
  * `index.ts`.
  */
-export function createApp(): Application {
+export function createApp(config: AppConfig = loadConfig()): Application {
   const app = express();
 
   // Middleware
   app.use(helmet());
   app.use(
     cors({
-      origin: process.env['CLIENT_URL'] || 'http://localhost:5173',
+      // One authoritative config path (SECURITY_PRINCIPLES.md §9/§25): the origin
+      // comes from the validated config, never straight from process.env. In
+      // production `loadConfig` guarantees `clientUrl` is present and non-localhost,
+      // so this can NEVER silently fall back to localhost in prod.
+      origin: config.clientUrl ?? 'http://localhost:5173',
       credentials: true,
     }),
   );

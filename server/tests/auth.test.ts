@@ -334,7 +334,7 @@ describe('authenticate middleware — req.currentUser is DB-authoritative', () =
     const res = await request(ctxApp).get('/_ctx').set('Cookie', [`token=${token}`]);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ userId: 1, role: 'COMPANY_MANAGER', companyId: 1 });
+    expect(res.body).toEqual({ userId: 1, role: 'COMPANY_MANAGER', companyId: 1, tokenVersion: 0 });
   });
 
   // Case 7: token companyId is stale; currentUser.companyId comes from the DB.
@@ -359,7 +359,7 @@ describe('authenticate middleware — req.currentUser is DB-authoritative', () =
     const res = await request(ctxApp).get('/_ctx').set('Cookie', [`token=${token}`]);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ userId: 1, role: 'SUPER_ADMIN', companyId: 4 });
+    expect(res.body).toEqual({ userId: 1, role: 'SUPER_ADMIN', companyId: 4, tokenVersion: 0 });
   });
 });
 
