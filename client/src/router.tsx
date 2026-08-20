@@ -2,8 +2,11 @@ import { createBrowserRouter } from "react-router-dom";
 import Login from "@/screens/login/Login";
 import MfaChallenge from "@/screens/mfa/MfaChallenge";
 import Home from "@/screens/home/Home";
+import Settings from "@/screens/settings/Settings";
 import Properties from "@/screens/properties/Properties";
 import PropertyForm from "@/screens/properties/PropertyForm";
+import PropertyDetail from "@/screens/properties/PropertyDetail";
+import Employees from "@/screens/employees/Employees";
 import NotFound from "@/screens/not-found/NotFound";
 import Forbidden from "@/screens/forbidden/Forbidden";
 import ProtectedLayout from "@/common/components/layouts/ProtectedLayout";
@@ -27,6 +30,7 @@ export const router = createBrowserRouter([
     errorElement: <RouteError />,
     children: [
       { index: true, element: <Home /> },
+      { path: "settings", element: <Settings /> },
       { path: "forbidden", element: <Forbidden /> },
       // Properties: mirror the server's authorization. Read (list) is open to
       // company managers + workers; writes (new/edit) to managers only. Everyone
@@ -37,6 +41,7 @@ export const router = createBrowserRouter([
         ),
         children: [
           { path: "properties", element: <Properties /> },
+          { path: "properties/:id", element: <PropertyDetail /> },
           {
             element: <RoleProtectedLayout roles={[ROLES.COMPANY_MANAGER]} />,
             children: [
@@ -45,6 +50,12 @@ export const router = createBrowserRouter([
             ],
           },
         ],
+      },
+      // Employees: manager-only, mirroring the server (GET /api/users is
+      // COMPANY_MANAGER-gated). Everyone else is bounced to /forbidden.
+      {
+        element: <RoleProtectedLayout roles={[ROLES.COMPANY_MANAGER]} />,
+        children: [{ path: "employees", element: <Employees /> }],
       },
     ],
   },

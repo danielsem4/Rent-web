@@ -29,13 +29,6 @@ enum AccountTokenType {
   PASSWORD_RESET
 }
 
-// Payment lifecycle. "Outstanding" = PENDING (not yet paid); "overdue" is derived
-// at read time from dueDate, not stored.
-enum PaymentStatus {
-  PENDING
-  PAID
-}
-
 // ─── Company ─────────────────────────────────────────────
 
 model Company {
@@ -46,7 +39,6 @@ model Company {
 
   users      User[]
   properties Property[]
-  payments   Payment[]
 }
 
 // ─── User ────────────────────────────────────────────────
@@ -183,31 +175,5 @@ model Property {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  payments Payment[]
-
   @@index([companyId])
-}
-
-// ─── Payment ─────────────────────────────────────────────
-// A rent payment owed for a Property, scoped to the owning Company (tenant
-// isolation via companyId, mirroring Property). PENDING rows are the
-// "outstanding payments" surfaced on the manager dashboard; PAID rows carry a
-// paidAt timestamp. Both companyId and propertyId cascade-delete with their parent.
-
-model Payment {
-  id         Int           @id @default(autoincrement())
-  companyId  Int
-  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  propertyId Int
-  property   Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  amount     Int
-  dueDate    DateTime
-  paidAt     DateTime?
-  status     PaymentStatus @default(PENDING)
-  notes      String?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
-
-  @@index([companyId])
-  @@index([propertyId])
 }

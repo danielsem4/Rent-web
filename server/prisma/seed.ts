@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient, Role } from '@prisma/client';
+import { PrismaClient, Role, PaymentStatus } from '@prisma/client';
 
 // Keep the seed's own client (not the lib singleton) — this script runs outside
 // the app process.
@@ -56,6 +56,72 @@ async function ensureUser(opts: {
   return { reused: Boolean(existing) };
 }
 
+/**
+ * Find-or-create a property by (companyId, address). `Property` has no unique
+ * constraint on those, so we can't `upsert`; `findFirst` + `create` keeps the
+ * seed idempotent across re-runs. Returns the property id.
+ */
+async function ensureProperty(opts: {
+  companyId: number;
+  city: string;
+  address: string;
+  monthlyRent: number;
+}): Promise<number> {
+  const existing = await prisma.property.findFirst({
+    where: { companyId: opts.companyId, address: opts.address },
+  });
+  if (existing) return existing.id;
+  const created = await prisma.property.create({
+    data: {
+      companyId: opts.companyId,
+      city: opts.city,
+      address: opts.address,
+      monthlyRent: opts.monthlyRent,
+    },
+  });
+  return created.id;
+}
+
+/**
+ * Find-or-create a payment by (companyId, propertyId, dueDate). Keeps the seed
+ * idempotent so re-running doesn't pile up duplicate rows.
+ */
+async function ensurePayment(opts: {
+  companyId: number;
+  propertyId: number;
+  amount: number;
+  dueDate: Date;
+  status: PaymentStatus;
+  paidAt?: Date;
+}): Promise<void> {
+  const existing = await prisma.payment.findFirst({
+    where: {
+      companyId: opts.companyId,
+      propertyId: opts.propertyId,
+      dueDate: opts.dueDate,
+    },
+  });
+  if (existing) return;
+  await prisma.payment.create({
+    data: {
+      companyId: opts.companyId,
+      propertyId: opts.propertyId,
+      amount: opts.amount,
+      dueDate: opts.dueDate,
+      status: opts.status,
+      paidAt: opts.paidAt ?? null,
+    },
+  });
+}
+
+/** A date `days` from today (negative = in the past). */
+function daysFromNow(days: number): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
 async function main() {
   // ── Rent+ Platform (internal) ─────────────────────────────────────────────
   // NOTE (temporary modeling decision): the schema requires `companyId` on every
@@ -91,6 +157,67 @@ async function main() {
     companyId: companyA.id,
   });
 
+  // Company A properties + payments — so the dashboard's Apartments count and
+  // Outstanding Payments table have real instances to show.
+  const aProp1 = await ensureProperty({
+    companyId: companyA.id,
+    city: 'Tel Aviv',
+    address: '12 Rothschild Blvd, Apt 4',
+    monthlyRent: 5200,
+  });
+  const aProp2 = await ensureProperty({
+    companyId: companyA.id,
+    city: 'Haifa',
+    address: '8 HaNassi Ave, Apt 2',
+    monthlyRent: 4800,
+  });
+  const aProp3 = await ensureProperty({
+    companyId: companyA.id,
+    city: 'Be’er Sheva',
+    address: '30 Rager Blvd, Apt 11',
+    monthlyRent: 6000,
+  });
+
+  // A mix of outstanding (PENDING; some overdue, some upcoming) and settled
+  // (PAID) payments — the dashboard table shows only the outstanding ones.
+  await ensurePayment({
+    companyId: companyA.id,
+    propertyId: aProp1,
+    amount: 5200,
+    dueDate: daysFromNow(-10), // overdue
+    status: PaymentStatus.PENDING,
+  });
+  await ensurePayment({
+    companyId: companyA.id,
+    propertyId: aProp1,
+    amount: 5200,
+    dueDate: daysFromNow(-40),
+    status: PaymentStatus.PAID,
+    paidAt: daysFromNow(-38),
+  });
+  await ensurePayment({
+    companyId: companyA.id,
+    propertyId: aProp2,
+    amount: 4800,
+    dueDate: daysFromNow(5), // upcoming
+    status: PaymentStatus.PENDING,
+  });
+  await ensurePayment({
+    companyId: companyA.id,
+    propertyId: aProp3,
+    amount: 6000,
+    dueDate: daysFromNow(-2), // overdue
+    status: PaymentStatus.PENDING,
+  });
+  await ensurePayment({
+    companyId: companyA.id,
+    propertyId: aProp2,
+    amount: 4800,
+    dueDate: daysFromNow(-35),
+    status: PaymentStatus.PAID,
+    paidAt: daysFromNow(-33),
+  });
+
   // ── Company B (second independent tenant for future multi-tenant tests) ─────
   const companyB = await ensureCompany(COMPANY_B);
   await ensureUser({
@@ -98,6 +225,22 @@ async function main() {
     name: 'Company B Manager',
     role: Role.COMPANY_MANAGER,
     companyId: companyB.id,
+  });
+
+  // Company B property + payment — belongs to another tenant, so it must NEVER
+  // appear in Company A's dashboard (backs the cross-tenant isolation check).
+  const bProp1 = await ensureProperty({
+    companyId: companyB.id,
+    city: 'Jerusalem',
+    address: '5 Jaffa St, Apt 7',
+    monthlyRent: 5500,
+  });
+  await ensurePayment({
+    companyId: companyB.id,
+    propertyId: bProp1,
+    amount: 5500,
+    dueDate: daysFromNow(-7),
+    status: PaymentStatus.PENDING,
   });
 
   // ── Summary ────────────────────────────────────────────────────────────────
@@ -108,8 +251,10 @@ async function main() {
   console.log('    ├── manager-a@rentplus.dev        (COMPANY_MANAGER)');
   console.log('    ├── worker-a@rentplus.dev         (COMPANY_WORKER)');
   console.log('    └── renter-a@rentplus.dev         (RENTER)');
+  console.log('    + 3 properties, 5 payments (3 outstanding, 2 paid)');
   console.log(`  ${COMPANY_B}`);
   console.log('    └── manager-b@rentplus.dev        (COMPANY_MANAGER)');
+  console.log('    + 1 property, 1 outstanding payment');
   console.log(`\n  Dev-only password for all seeded accounts: ${DEV_PASSWORD}`);
   console.log('  (development data only — do not use in production)\n');
 }

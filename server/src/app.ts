@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { createAuthRouter } from './modules/auth/auth.routes';
 import { createUsersRouter } from './modules/users/users.routes';
 import { createPropertiesRouter } from './modules/properties/properties.routes';
+import { createPaymentsRouter } from './modules/payments/payments.routes';
 import { createAccountRouter } from './modules/account/account.routes';
 import { errorHandler } from './shared/middlewares/errorHandler';
 import { requestContext } from './shared/middlewares/requestContext';
@@ -143,6 +144,7 @@ export function createApp(
   app.use('/api/auth', createAccountRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
   app.use('/api/users', createUsersRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
   app.use('/api/properties', createPropertiesRouter({ auditLogger }));
+  app.use('/api/payments', createPaymentsRouter());
 
   // Error handler (must be last)
   app.use(errorHandler);

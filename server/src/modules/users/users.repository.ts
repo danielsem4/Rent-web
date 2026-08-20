@@ -4,6 +4,16 @@ import { Role } from '../../shared/constants/roles';
 // output model (see SafeUser in the auth module).
 import type { SafeUser } from '../auth/auth.repository';
 
+/**
+ * The company user list carries one extra field beyond `SafeUser`: `isActive`,
+ * which distinguishes active members from pending (invited-but-not-yet-accepted)
+ * ones. It is non-sensitive and scoped to the manager's own company. Kept as a
+ * list-only shape so the auth `SafeUser` contract (login / `/me`) is untouched.
+ */
+export interface UserListItem extends SafeUser {
+  isActive: boolean;
+}
+
 export interface CreateUserData {
   email: string;
   name: string;
@@ -21,7 +31,7 @@ export interface UpdateUserData {
 }
 
 export interface IUsersRepository {
-  listByCompany(companyId: number): Promise<SafeUser[]>;
+  listByCompany(companyId: number): Promise<UserListItem[]>;
   findByIdInCompany(id: number, companyId: number): Promise<SafeUser | null>;
   findByEmail(email: string): Promise<{ id: number } | null>;
   create(data: CreateUserData): Promise<SafeUser>;
@@ -44,14 +54,26 @@ function toSafeUser(user: {
   };
 }
 
+/** List projection: `SafeUser` plus the `isActive` (active vs. pending) flag. */
+function toUserListItem(user: {
+  id: number;
+  email: string;
+  name: string;
+  role: Role;
+  companyId: number;
+  isActive: boolean;
+}): UserListItem {
+  return { ...toSafeUser(user), isActive: user.isActive };
+}
+
 export class UsersRepository implements IUsersRepository {
-  async listByCompany(companyId: number): Promise<SafeUser[]> {
+  async listByCompany(companyId: number): Promise<UserListItem[]> {
     // Tenant condition is part of the query — never a post-fetch filter.
     const users = await prisma.user.findMany({
       where: { companyId },
       orderBy: { id: 'asc' },
     });
-    return users.map(toSafeUser);
+    return users.map(toUserListItem);
   }
 
   async findByIdInCompany(id: number, companyId: number): Promise<SafeUser | null> {

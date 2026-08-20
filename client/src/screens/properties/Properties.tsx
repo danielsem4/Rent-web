@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, Eye, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -63,7 +63,7 @@ export default function Properties() {
                   <th className="px-4 py-3 text-start font-medium">{t("properties.owner")}</th>
                   <th className="px-4 py-3 text-end font-medium">{t("properties.rent")}</th>
                   <th className="px-4 py-3 text-end font-medium">{t("properties.capacity")}</th>
-                  {canWrite && <th className="px-4 py-3 text-end font-medium">{t("properties.actions")}</th>}
+                  <th className="px-4 py-3 text-end font-medium">{t("properties.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -74,26 +74,33 @@ export default function Properties() {
                     <td className="px-4 py-3">{p.ownerName ?? "—"}</td>
                     <td className="px-4 py-3 text-end tabular-nums">{p.monthlyRent.toLocaleString()}</td>
                     <td className="px-4 py-3 text-end tabular-nums">{p.capacity}</td>
-                    {canWrite && (
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1">
-                          <Button asChild variant="ghost" size="icon" aria-label={t("properties.edit")}>
-                            <Link to={`/properties/${p.id}/edit`}>
-                              <Pencil className="size-4" />
-                            </Link>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={t("properties.delete")}
-                            disabled={remove.isPending}
-                            onClick={() => onDelete(p.id, `${p.city}, ${p.address}`)}
-                          >
-                            <Trash2 className="text-destructive size-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    )}
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1">
+                        <Button asChild variant="ghost" size="icon" aria-label={t("properties.view")}>
+                          <Link to={`/properties/${p.id}`}>
+                            <Eye className="size-4" />
+                          </Link>
+                        </Button>
+                        {canWrite && (
+                          <>
+                            <Button asChild variant="ghost" size="icon" aria-label={t("properties.edit")}>
+                              <Link to={`/properties/${p.id}/edit`}>
+                                <Pencil className="size-4" />
+                              </Link>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={t("properties.delete")}
+                              disabled={remove.isPending}
+                              onClick={() => onDelete(p.id, `${p.city}, ${p.address}`)}
+                            >
+                              <Trash2 className="text-destructive size-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

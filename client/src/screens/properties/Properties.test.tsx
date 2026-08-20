@@ -70,17 +70,28 @@ describe("Properties list", () => {
     h.list = { data: [row()], isLoading: false, isError: false };
     renderList();
     expect(screen.getByText("Add property")).toBeInTheDocument();
-    // Edit/delete controls are present for a manager.
+    // View + edit/delete controls are all present for a manager.
+    expect(screen.getByLabelText("View")).toBeInTheDocument();
     expect(screen.getByLabelText("Edit")).toBeInTheDocument();
     expect(screen.getByLabelText("Delete")).toBeInTheDocument();
   });
 
-  it("hides write controls for a COMPANY_WORKER (UX gating)", () => {
+  it("links the View (eye) action to the property detail page", () => {
+    h.list = { data: [row({ id: 42 })], isLoading: false, isError: false };
+    renderList();
+    expect(screen.getByLabelText("View").closest("a")).toHaveAttribute(
+      "href",
+      "/properties/42",
+    );
+  });
+
+  it("shows View but hides write controls for a COMPANY_WORKER (UX gating)", () => {
     h.role = "COMPANY_WORKER";
     h.list = { data: [row()], isLoading: false, isError: false };
     renderList();
-    // Data is still visible (read-only), but no create/edit/delete affordances.
+    // Data + View are visible (read-only), but no create/edit/delete affordances.
     expect(screen.getByText("Tel Aviv")).toBeInTheDocument();
+    expect(screen.getByLabelText("View")).toBeInTheDocument();
     expect(screen.queryByText("Add property")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Edit")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Delete")).not.toBeInTheDocument();
