@@ -8,6 +8,9 @@ const app = createApp();
 let t: SeededTenants;
 let managerA: string[];
 let managerB: string[];
+// Same-origin value the CSRF check accepts in the test env; authenticated
+// POST/PATCH requests must send it (CSRF runs before the router).
+const ORIGIN = 'http://localhost:5173';
 
 beforeEach(async () => {
   await resetDatabase();
@@ -76,6 +79,7 @@ describe('Integration · update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${t.workerA.id}`)
       .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
       .send({ name: 'Renamed A Worker' });
 
     expect(res.status).toBe(200);
@@ -91,6 +95,7 @@ describe('Integration · update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${t.workerB.id}`)
       .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
       .send({ name: 'HACKED' });
 
     expect(res.status).toBe(404);
@@ -110,6 +115,7 @@ describe('Integration · create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
       .send({ email: 'created-a@test.local', name: 'Created A', password: 'password123', role: 'COMPANY_WORKER' });
 
     expect(res.status).toBe(201);
@@ -123,6 +129,7 @@ describe('Integration · create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
       .send({
         email: 'inject-b@test.local',
         name: 'Inject B',
@@ -143,6 +150,7 @@ describe('Integration · create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
       .send({ email: 'evil@test.local', name: 'Evil', password: 'password123', role: 'SUPER_ADMIN' });
 
     expect(res.status).toBe(400);
@@ -154,6 +162,7 @@ describe('Integration · create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
       .send({ email: t.workerA.email, name: 'Dup', password: 'password123', role: 'RENTER' });
 
     expect(res.status).toBe(409);
@@ -168,6 +177,7 @@ describe('Integration · self-role protection', () => {
     const res = await request(app)
       .patch(`/api/users/${t.managerA.id}`)
       .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
       .send({ role: 'COMPANY_WORKER' });
 
     expect(res.status).toBe(403);
@@ -186,6 +196,7 @@ describe('Integration · foreign-company write proof', () => {
     const res = await request(app)
       .patch(`/api/users/${t.managerB.id}`)
       .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
       .send({ name: 'Owned', email: 'owned@test.local' });
 
     expect(res.status).toBe(404);

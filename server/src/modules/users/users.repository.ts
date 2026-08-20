@@ -10,6 +10,8 @@ export interface CreateUserData {
   passwordHash: string;
   role: Role;
   companyId: number;
+  /** Invited users start inactive (pending) until they accept the invitation. */
+  isActive: boolean;
 }
 
 export interface UpdateUserData {

@@ -12,22 +12,41 @@ import { Role } from '../src/shared/constants/roles';
 // relational store (tenant filtering, inserts, scoped updates). The real
 // `src/lib/prisma` module body therefore never runs and no DB is contacted.
 // ---------------------------------------------------------------------------
-const { findUnique, findFirst, findMany, create, updateMany } = vi.hoisted(() => ({
-  findUnique: vi.fn(),
-  findFirst: vi.fn(),
-  findMany: vi.fn(),
-  create: vi.fn(),
-  updateMany: vi.fn(),
-}));
+const { findUnique, findFirst, findMany, create, updateMany, tokenCreate, tokenUpdateMany } =
+  vi.hoisted(() => ({
+    findUnique: vi.fn(),
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    create: vi.fn(),
+    updateMany: vi.fn(),
+    // Creating a user now also issues an INVITATION token via the account repo.
+    tokenCreate: vi.fn(async () => ({ id: 1 })),
+    tokenUpdateMany: vi.fn(async () => ({ count: 0 })),
+  }));
 
 vi.mock('../src/lib/prisma', () => ({
-  default: { user: { findUnique, findFirst, findMany, create, updateMany } },
+  default: {
+    user: { findUnique, findFirst, findMany, create, updateMany },
+    accountToken: { create: tokenCreate, updateMany: tokenUpdateMany },
+    auditLog: { create: vi.fn() },
+  },
 }));
 
 // Imported AFTER the mock is registered (hoisting guarantees the order).
 import { createApp } from '../src/app';
+import type { AccountMailer } from '../src/shared/notifications/mailer';
 
-const app = createApp();
+// Capturing mailer: records issued invitations instead of logging them, so tests
+// can assert an invitation was sent (and keep console output clean).
+const sentInvitations: Array<{ to: string; link: string }> = [];
+const captureMailer: AccountMailer = {
+  sendInvitation: async (to, link) => {
+    sentInvitations.push({ to, link });
+  },
+  sendPasswordReset: async () => {},
+};
+
+const app = createApp(undefined, { mailer: captureMailer });
 
 // ── Tenant layout ──────────────────────────────────────────────────────────
 // Company A = 1 (the acting manager's company), Company B = 2, Platform = 9.
@@ -68,7 +87,14 @@ create.mockImplementation(
   async ({
     data,
   }: {
-    data: { email: string; name: string; role: Role; companyId: number; passwordHash: string };
+    data: {
+      email: string;
+      name: string;
+      role: Role;
+      companyId: number;
+      passwordHash: string;
+      isActive: boolean;
+    };
   }) => {
     const row: UserRow = {
       id: nextId++,
@@ -77,6 +103,9 @@ create.mockImplementation(
       role: data.role,
       companyId: data.companyId,
       passwordHash: data.passwordHash,
+      // Invited users start pending; the invitation flow flips this to true.
+      isActive: data.isActive,
+      tokenVersion: 0,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     };
@@ -106,6 +135,9 @@ updateMany.mockImplementation(
 const NOT_FOUND = 'User not found';
 const FORBIDDEN = 'Forbidden';
 const AUTH_REQUIRED = 'Authentication required';
+// Same-origin value the CSRF check accepts in the test env; authenticated
+// (cookie-bearing) POST/PATCH requests must send it (CSRF runs before authorize).
+const ORIGIN = 'http://localhost:5173';
 
 /** Cookie header for a signed session belonging to the given user id. */
 function cookieFor(userId: number): string[] {
@@ -116,16 +148,17 @@ function cookieFor(userId: number): string[] {
 
 const managerCookie = () => cookieFor(MANAGER_ID);
 
+// No password field: managers invite; the user sets their own password later.
 const validCreateBody = (overrides: Record<string, unknown> = {}) => ({
   email: 'new-user@test.dev',
   name: 'New User',
-  password: 'password123',
   role: Role.COMPANY_WORKER,
   ...overrides,
 });
 
 beforeEach(async () => {
   nextId = 100;
+  sentInvitations.length = 0;
   users = [
     await makeUserRow({ id: MANAGER_ID, email: 'manager-a@test.dev', name: 'Manager A', role: Role.COMPANY_MANAGER, companyId: COMPANY_A }),
     await makeUserRow({ id: WORKER_ID, email: 'worker-a@test.dev', name: 'Worker A', role: Role.COMPANY_WORKER, companyId: COMPANY_A }),
@@ -176,6 +209,7 @@ describe('Role authorization', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', cookieFor(WORKER_ID))
+      .set('Origin', ORIGIN)
       .send(validCreateBody());
     expect(res.status).toBe(403);
   });
@@ -239,6 +273,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c10@test.dev' }));
 
     expect(res.status).toBe(201);
@@ -250,6 +285,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c11@test.dev', companyId: COMPANY_B }));
 
     expect(res.status).toBe(201);
@@ -263,6 +299,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c12@test.dev', role: 'SUPER_ADMIN' }));
 
     expect(res.status).toBe(400);
@@ -274,6 +311,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c13@test.dev', role: Role.COMPANY_WORKER }));
 
     expect(res.status).toBe(201);
@@ -285,6 +323,7 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'c14@test.dev', role: Role.RENTER }));
 
     expect(res.status).toBe(201);
@@ -296,10 +335,42 @@ describe('POST /api/users — create isolation', () => {
     const res = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'worker-a@test.dev' }));
 
     expect(res.status).toBe(409);
     expect(res.body.message).toBe('Email already in use');
+  });
+
+  // Invitation flow: no plaintext password is accepted; the new user is created
+  // PENDING (isActive:false) and an invitation is dispatched.
+  it('creates the user pending and dispatches an invitation (no password stored)', async () => {
+    const res = await request(app)
+      .post('/api/users')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ email: 'invitee@test.dev' }));
+
+    expect(res.status).toBe(201);
+    const stored = users.find((u) => u.email === 'invitee@test.dev');
+    expect(stored?.isActive).toBe(false);
+    // An invitation link was dispatched to the new user.
+    expect(sentInvitations).toHaveLength(1);
+    expect(sentInvitations[0]!.to).toBe('invitee@test.dev');
+  });
+
+  it('ignores a client-supplied password (mass-assignment stripped)', async () => {
+    const res = await request(app)
+      .post('/api/users')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ email: 'ignore-pw@test.dev', password: 'attacker-set-pw1' }));
+
+    expect(res.status).toBe(201);
+    // The stored hash is the unusable placeholder, never the supplied password.
+    const stored = users.find((u) => u.email === 'ignore-pw@test.dev');
+    expect(stored?.isActive).toBe(false);
+    expect(stored?.passwordHash).not.toContain('attacker-set-pw1');
   });
 });
 
@@ -312,6 +383,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${WORKER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Renamed Worker' });
 
     expect(res.status).toBe(200);
@@ -324,6 +396,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${RENTER_B_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Hacked' });
 
     expect(res.status).toBe(404);
@@ -336,6 +409,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${WORKER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Still A', companyId: COMPANY_B });
 
     expect(res.status).toBe(200);
@@ -348,6 +422,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${WORKER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ role: 'SUPER_ADMIN' });
 
     expect(res.status).toBe(400);
@@ -359,6 +434,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${MANAGER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ role: Role.COMPANY_WORKER });
 
     expect(res.status).toBe(403);
@@ -369,6 +445,7 @@ describe('PATCH /api/users/:id — update isolation', () => {
     const res = await request(app)
       .patch(`/api/users/${MANAGER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Manager Renamed' });
 
     expect(res.status).toBe(200);
@@ -392,6 +469,7 @@ describe('Response safety — passwordHash never leaks', () => {
     const created = await request(app)
       .post('/api/users')
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send(validCreateBody({ email: 'safe@test.dev' }));
     expect(created.body.user).not.toHaveProperty('passwordHash');
     expect(JSON.stringify(created.body)).not.toContain('passwordHash');
@@ -399,6 +477,7 @@ describe('Response safety — passwordHash never leaks', () => {
     const updated = await request(app)
       .patch(`/api/users/${WORKER_ID}`)
       .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
       .send({ name: 'Safe Worker' });
     expect(updated.body.user).not.toHaveProperty('passwordHash');
     expect(JSON.stringify(updated.body)).not.toContain('passwordHash');

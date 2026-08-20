@@ -2,6 +2,11 @@
 
 Vite 7 + React 19 + TypeScript SPA. Talks to the rent+ server over cookie-based auth at `/api/*` (proxied to the backend in dev). Pure client — no SSR.
 
+> 🔒 **Security:** `../SECURITY_PRINCIPLES.md` is binding and **mandatory reading** before any
+> change touching auth, sensitive data, APIs, secrets, or logging. Frontend restrictions are
+> **UX only** — never rely on client-side gating for security; all enforcement is server-side.
+> Never store auth tokens in `localStorage`/`sessionStorage` (auth is HttpOnly-cookie based).
+
 ## Stack (do not swap without discussion)
 
 - **Build**: Vite 7 + `@vitejs/plugin-react`. **Lang**: TypeScript (strict, `verbatimModuleSyntax`).

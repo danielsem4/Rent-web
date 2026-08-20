@@ -11,13 +11,16 @@ const manageableRole = z.enum(['COMPANY_MANAGER', 'COMPANY_WORKER', 'RENTER']);
 /**
  * Body for POST /api/users. Non-strict by project convention (no `.strict()`
  * anywhere in the codebase), so unknown keys — notably a client-supplied
- * `companyId` — are silently stripped. Company ownership is assigned by the
- * service from the trusted `req.currentUser.companyId`, never from the body.
+ * `companyId` OR a `password` — are silently stripped. Company ownership is
+ * assigned by the service from the trusted `req.currentUser.companyId`.
+ *
+ * NO password field (SECURITY_PRINCIPLES.md §3/§24): managers do not choose or
+ * transmit passwords. The invited user sets their own password via a single-use
+ * invitation token (see `modules/account`). A `password` in the body is ignored.
  */
 export const createUserSchema = z.object({
   email: z.string().email('A valid email is required'),
   name: z.string().min(1, 'Name is required'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
   role: manageableRole,
 });
 

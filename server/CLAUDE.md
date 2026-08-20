@@ -2,6 +2,13 @@
 
 Express 5 + TypeScript (CommonJS) + Prisma 7 (PostgreSQL, driver-adapter). Modular feature slices with strict per-module layering. Node 18+.
 
+> 🔒 **Security:** `../SECURITY_PRINCIPLES.md` is binding and **mandatory reading** before any
+> change touching authentication, authorization, users, permissions, sensitive data, APIs, the
+> DB, secrets, or logging. See `../SECURITY_GAP_ANALYSIS.md` for current status/findings and
+> `../SECURITY_CHECKLIST.md` for the per-PR checklist. Enforce **deny-by-default**, tenant
+> isolation via `companyId` from `req.currentUser` (never the body), and **no silent security
+> weakening**.
+
 ## Stack (do not swap without discussion)
 
 - **Runtime/lang**: Node.js, TypeScript compiled to CommonJS (`tsc`, target ES2020, `strict`).
@@ -10,17 +17,20 @@ Express 5 + TypeScript (CommonJS) + Prisma 7 (PostgreSQL, driver-adapter). Modul
 - **Validation**: Zod 4.
 - **Auth**: JWT in an httpOnly cookie (`token`), password hashing with `bcrypt`.
 - **Security/parsing**: `helmet`, `cors` (credentials), `cookie-parser`.
-- Dev: `ts-node` + `nodemon`. No test framework / linter configured by default.
+- Dev: `ts-node` + `nodemon`. **Testing: Vitest** — a fast unit suite (Prisma mocked) and an integration suite (real PostgreSQL + Supertest); see "Testing" below. No linter configured by default.
 
 ## Folder structure
 
 ```
 src/
-  index.ts            # bootstrap: helmet → cors(credentials) → cookieParser → json/urlencoded → /api/health → mount routers → errorHandler LAST
+  index.ts            # process bootstrap: loadConfig() fail-fast, then createApp(config).listen()
+  app.ts              # createApp(config): optional trust-proxy (off by default) → helmet → cors → cookieParser → json/urlencoded → CSRF check → login (per-IP + email+IP + per-email account limiters) / refresh rate limiters → /api/health → mount routers → errorHandler LAST. Security middleware is built fresh per call from config (test isolation).
   lib/prisma.ts       # single PrismaClient (PrismaPg adapter). The ONLY place a client is constructed.
   shared/
     errors/           # AppError (message, statusCode, isOperational)
-    middlewares/      # authenticate, authorize, validateRequest, errorHandler
+    middlewares/      # authenticate, authorize, validateRequest, errorHandler, csrf (Origin/Referer check)
+    security/         # rateLimit.ts — reusable wrapper over express-rate-limit (named policy factories)
+    config/           # env.ts (loadConfig + validation), jwt.ts, rateLimit.ts (centralized §28 policy values)
     utils/            # cookie.ts (AUTH_COOKIE_NAME + options), etc.
   modules/<feature>/  # one folder per domain (kebab-case)
 ```

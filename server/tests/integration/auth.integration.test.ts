@@ -15,14 +15,19 @@ beforeEach(async () => {
 // Authentication context (real DB) — spec cases 1–4
 // ===========================================================================
 describe('Integration · authentication context (real DB)', () => {
-  it('Case 1 — Company A manager can log in', async () => {
-    const res = await request(app)
+  it('Case 1 — Company A manager can log in (completing mandatory MFA)', async () => {
+    // managerA is a COMPANY_MANAGER (MFA-mandatory): the raw login returns a
+    // challenge, and loginAs completes the second factor to reach a session.
+    const first = await request(app)
       .post('/api/auth/login')
       .send({ email: t.managerA.email, password: TEST_PASSWORD });
+    expect(first.status).toBe(200);
+    expect(first.body.mfaRequired).toBe(true);
+    expect(first.headers['set-cookie']).toBeUndefined(); // no session on step 1
 
-    expect(res.status).toBe(200);
-    expect(res.body.user.email).toBe(t.managerA.email);
-    expect(res.body.user).not.toHaveProperty('passwordHash');
+    const { user } = await loginAs(app, t.managerA.email);
+    expect(user.email).toBe(t.managerA.email);
+    expect(user).not.toHaveProperty('passwordHash');
   });
 
   it('Case 2 — /api/auth/me returns Company A’s real companyId', async () => {

@@ -1,12 +1,26 @@
 import bcrypt from 'bcrypt';
 import request from 'supertest';
 import type { Application } from 'express';
+import { authenticator } from 'otplib';
 import prisma from '../../../src/lib/prisma';
 import { Role } from '../../../src/shared/constants/roles';
 import type { SafeUser } from '../../../src/modules/auth/auth.repository';
+import { encryptSecret } from '../../../src/shared/utils/encryption';
 import { assertTestDatabase } from './guard';
 
 export const TEST_PASSWORD = 'password123';
+
+/**
+ * Fixed TOTP secret the seeded PRIVILEGED users (managerA/managerB/superAdmin)
+ * are enrolled with, so `loginAs` can compute a valid second-factor code and
+ * complete the mandatory-MFA login. Non-privileged users are not enrolled.
+ */
+export const MFA_TEST_SECRET = 'JBSWY3DPEHPK3PXP';
+
+/** Roles for which MFA is mandatory (mirrors AuthService.isPrivileged). */
+function isPrivileged(role: Role): boolean {
+  return role === Role.SUPER_ADMIN || role === Role.COMPANY_MANAGER;
+}
 
 // Every fixture user shares one password; hash it once so we don't pay bcrypt's
 // cost per user per test.
@@ -25,7 +39,11 @@ async function passwordHash(): Promise<string> {
  */
 export async function resetDatabase(): Promise<void> {
   assertTestDatabase(process.env['DATABASE_URL']);
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE "User", "Company" RESTART IDENTITY CASCADE');
+  // AuditLog is listed explicitly: its userId/companyId are LOOSE columns (no FK),
+  // so it is NOT reached by the User/Company cascade and must be truncated directly.
+  await prisma.$executeRawUnsafe(
+    'TRUNCATE TABLE "AuditLog", "User", "Company" RESTART IDENTITY CASCADE',
+  );
 }
 
 export interface SeededUser {
@@ -65,8 +83,14 @@ export async function seedTenants(): Promise<SeededTenants> {
     role: Role,
     companyId: number,
   ): Promise<SeededUser> => {
+    // Privileged roles are MFA-mandatory: seed them ENROLLED with the fixed test
+    // secret so loginAs can complete the second factor. Non-privileged users stay
+    // unenrolled and log in one-step.
+    const mfa = isPrivileged(role)
+      ? { isMfaEnabled: true, mfaSecret: encryptSecret(MFA_TEST_SECRET) }
+      : {};
     const u = await prisma.user.create({
-      data: { email, name, role, companyId, passwordHash: hash },
+      data: { email, name, role, companyId, passwordHash: hash, ...mfa },
     });
     return { id: u.id, email: u.email, role: u.role, companyId: u.companyId };
   };
@@ -97,6 +121,21 @@ export async function loginAs(
   if (res.status !== 200) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.body)}`);
   }
-  const cookie = res.headers['set-cookie'] as unknown as string[];
-  return { cookie, user: res.body.user as SafeUser };
+
+  // Non-MFA users get a session directly. Privileged (MFA-enrolled) users get a
+  // challenge token — complete the second factor with a code from MFA_TEST_SECRET.
+  if (!res.body.mfaRequired) {
+    return { cookie: res.headers['set-cookie'] as unknown as string[], user: res.body.user as SafeUser };
+  }
+
+  const challenge = await request(app)
+    .post('/api/auth/mfa/challenge')
+    .send({ mfaToken: res.body.mfaToken, code: authenticator.generate(MFA_TEST_SECRET) });
+  if (challenge.status !== 200) {
+    throw new Error(`MFA challenge failed for ${email}: ${challenge.status} ${JSON.stringify(challenge.body)}`);
+  }
+  return {
+    cookie: challenge.headers['set-cookie'] as unknown as string[],
+    user: challenge.body.user as SafeUser,
+  };
 }

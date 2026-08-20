@@ -18,7 +18,14 @@ import { ROLE_VALUES, Role } from '../src/shared/constants/roles';
 const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
 
 vi.mock('../src/lib/prisma', () => ({
-  default: { user: { findUnique } },
+  // login now also mints a refresh token (refreshToken.create); logout without a
+  // refresh cookie touches no refresh rows. Detailed rotation/reuse behavior is
+  // exercised in refreshToken.test.ts (service unit) + the integration suite.
+  default: {
+    user: { findUnique },
+    auditLog: { create: vi.fn() },
+    refreshToken: { create: vi.fn() },
+  },
 }));
 
 // Imported AFTER the mock is registered (hoisting guarantees the order).
@@ -59,6 +66,10 @@ findUnique.mockImplementation(async ({ where }: { where: { email?: string; id?: 
 
 const INVALID_CREDENTIALS = 'Invalid email or password';
 const AUTH_REQUIRED = 'Authentication required';
+// Same-origin value the CSRF check accepts in the test env (config.clientUrl is
+// unset ⇒ the dev fallback origin). Authenticated (cookie-bearing) mutations
+// must send it, since the CSRF middleware runs before `authenticate`.
+const ORIGIN = 'http://localhost:5173';
 
 beforeEach(async () => {
   // Fresh isolated fixture per test: one COMPANY_MANAGER with a known password.
@@ -75,21 +86,17 @@ describe('GET /api/health', () => {
 });
 
 describe('POST /api/auth/login', () => {
-  // Case 1
-  it('valid credentials return 200 with the safe user payload and set the token cookie', async () => {
+  // Case 1 — a NON-privileged, MFA-off user logs in one-step (session issued).
+  // Privileged roles are MFA-mandatory and take the two-phase path (see below).
+  it('valid credentials for a non-privileged MFA-off user return 200 + session cookies', async () => {
+    users = [await makeUserRow({ id: 2, email: 'renter@test.dev', role: Role.RENTER, companyId: 1 })];
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
+      .send({ email: 'renter@test.dev', password: DEFAULT_PASSWORD });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      user: {
-        id: 1,
-        email: 'manager@test.dev',
-        name: 'Test Manager',
-        role: 'COMPANY_MANAGER',
-        companyId: 1,
-      },
+      user: { id: 2, email: 'renter@test.dev', name: 'Test Manager', role: 'RENTER', companyId: 1 },
     });
 
     const setCookie = res.headers['set-cookie'] as unknown as string[];
@@ -98,6 +105,36 @@ describe('POST /api/auth/login', () => {
     // Case 10 (login): passwordHash must never appear in the response.
     expect(res.body.user).not.toHaveProperty('passwordHash');
     expect(JSON.stringify(res.body)).not.toContain('passwordHash');
+  });
+
+  // Mandatory MFA (SECURITY §3/§24): a privileged, NOT-yet-enrolled user is hard-
+  // gated — no session, an enroll token instead.
+  it('a privileged user without MFA is hard-gated into enrollment (no session)', async () => {
+    users = [await makeUserRow({ id: 1, role: Role.COMPANY_MANAGER, isMfaEnabled: false })];
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
+
+    expect(res.status).toBe(200);
+    expect(res.body.mfaRequired).toBe(true);
+    expect(res.body.mfaSetupRequired).toBe(true);
+    expect(typeof res.body.mfaToken).toBe('string');
+    expect(res.body.user).toBeUndefined();
+    expect(res.headers['set-cookie']).toBeUndefined(); // no session cookies yet
+  });
+
+  // An MFA-enrolled user gets a challenge token (verify existing TOTP), no setup flag.
+  it('an MFA-enrolled user gets a challenge token (no session yet)', async () => {
+    users = [await makeUserRow({ id: 1, role: Role.RENTER, isMfaEnabled: true })];
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
+
+    expect(res.status).toBe(200);
+    expect(res.body.mfaRequired).toBe(true);
+    expect(res.body.mfaSetupRequired).toBeUndefined();
+    expect(typeof res.body.mfaToken).toBe('string');
+    expect(res.headers['set-cookie']).toBeUndefined();
   });
 
   // Case 2
@@ -173,22 +210,10 @@ describe('GET /api/auth/me', () => {
 });
 
 describe('POST /api/auth/refresh', () => {
-  // Case 8 — documents CURRENT behavior: it is an authenticated route that
-  // rotates the token cookie and returns only a message (no user payload).
-  it('with a valid session returns 200 and a fresh token cookie', async () => {
-    const token = signToken(1, 'COMPANY_MANAGER');
-    const res = await request(app)
-      .post('/api/auth/refresh')
-      .set('Cookie', [`token=${token}`]);
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ message: 'Token refreshed' });
-    const setCookie = res.headers['set-cookie'] as unknown as string[];
-    expect(setCookie).toBeDefined();
-    expect(setCookie.join(';')).toMatch(/(^|;)\s*token=/);
-  });
-
-  it('without authentication returns 401', async () => {
+  // Batch 5: the REFRESH cookie is the credential (no `authenticate` guard). With
+  // no refresh cookie present, refresh is denied. Full rotation/reuse/expiry
+  // behavior lives in refreshToken.test.ts + refreshToken.integration.test.ts.
+  it('with no refresh cookie returns 401', async () => {
     const res = await request(app).post('/api/auth/refresh');
     expect(res.status).toBe(401);
     expect(res.body.message).toBe(AUTH_REQUIRED);
@@ -201,7 +226,8 @@ describe('POST /api/auth/logout', () => {
     const token = signToken(1, 'COMPANY_MANAGER');
     const res = await request(app)
       .post('/api/auth/logout')
-      .set('Cookie', [`token=${token}`]);
+      .set('Cookie', [`token=${token}`])
+      .set('Origin', ORIGIN);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ message: 'Logged out' });
@@ -239,7 +265,8 @@ describe('Role taxonomy', () => {
   // others prove each role is represented safely by the auth types + payload.
   // (Role-typed fixtures give the compile-time "represented safely" guarantee.)
   for (const role of ROLE_VALUES) {
-    it(`a ${role} user authenticates and the response preserves the role`, async () => {
+    const privileged = role === Role.SUPER_ADMIN || role === Role.COMPANY_MANAGER;
+    it(`a ${role} user authenticates (${privileged ? 'MFA-gated' : 'session'})`, async () => {
       const email = `${role.toLowerCase()}@test.dev`;
       users = [await makeUserRow({ id: 1, email, role })];
 
@@ -248,8 +275,14 @@ describe('Role taxonomy', () => {
         .send({ email, password: DEFAULT_PASSWORD });
 
       expect(res.status).toBe(200);
-      expect(res.body.user.role).toBe(role);
-      expect(res.body.user).not.toHaveProperty('passwordHash');
+      if (privileged) {
+        // Mandatory MFA: no session, credentials-valid → second factor required.
+        expect(res.body.mfaRequired).toBe(true);
+        expect(res.body.user).toBeUndefined();
+      } else {
+        expect(res.body.user.role).toBe(role);
+        expect(res.body.user).not.toHaveProperty('passwordHash');
+      }
     });
   }
 });
@@ -259,9 +292,10 @@ describe('Role taxonomy', () => {
 // ===========================================================================
 
 describe('Login — company context', () => {
-  // Case 1: the safe user carries the current DB companyId.
+  // Case 1: the safe user carries the current DB companyId. Uses a non-privileged
+  // (session-issuing) user so the login response includes the user payload.
   it('includes the correct companyId from the DB row', async () => {
-    users = [await makeUserRow({ id: 1, email: 'manager@test.dev', companyId: 7 })];
+    users = [await makeUserRow({ id: 1, email: 'manager@test.dev', role: Role.RENTER, companyId: 7 })];
 
     const res = await request(app)
       .post('/api/auth/login')
@@ -285,6 +319,7 @@ describe('Login — company context', () => {
 
   // Case 3: passwordHash is never exposed (also covered above; kept explicit).
   it('never exposes passwordHash', async () => {
+    users = [await makeUserRow({ id: 1, email: 'manager@test.dev', role: Role.RENTER })];
     const res = await request(app)
       .post('/api/auth/login')
       .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
@@ -294,9 +329,10 @@ describe('Login — company context', () => {
     expect(JSON.stringify(res.body)).not.toContain('passwordHash');
   });
 
-  // The issued token embeds the current companyId snapshot claim.
+  // The issued token embeds the current companyId snapshot claim (non-privileged
+  // user so a session token is minted directly).
   it('issues a token whose companyId snapshot matches the DB row', async () => {
-    users = [await makeUserRow({ id: 1, companyId: 7, role: Role.COMPANY_MANAGER })];
+    users = [await makeUserRow({ id: 1, companyId: 7, role: Role.RENTER })];
 
     const res = await request(app)
       .post('/api/auth/login')
@@ -304,7 +340,7 @@ describe('Login — company context', () => {
 
     const decoded = tokenFromSetCookie(res.headers['set-cookie'] as unknown as string[]);
     expect(decoded.userId).toBe(1);
-    expect(decoded.role).toBe('COMPANY_MANAGER');
+    expect(decoded.role).toBe('RENTER');
     expect(decoded.companyId).toBe(7);
   });
 });
@@ -334,7 +370,7 @@ describe('authenticate middleware — req.currentUser is DB-authoritative', () =
     const res = await request(ctxApp).get('/_ctx').set('Cookie', [`token=${token}`]);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ userId: 1, role: 'COMPANY_MANAGER', companyId: 1 });
+    expect(res.body).toEqual({ userId: 1, role: 'COMPANY_MANAGER', companyId: 1, tokenVersion: 0 });
   });
 
   // Case 7: token companyId is stale; currentUser.companyId comes from the DB.
@@ -359,7 +395,7 @@ describe('authenticate middleware — req.currentUser is DB-authoritative', () =
     const res = await request(ctxApp).get('/_ctx').set('Cookie', [`token=${token}`]);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ userId: 1, role: 'SUPER_ADMIN', companyId: 4 });
+    expect(res.body).toEqual({ userId: 1, role: 'SUPER_ADMIN', companyId: 4, tokenVersion: 0 });
   });
 });
 
@@ -387,30 +423,7 @@ describe('Deleted user', () => {
   });
 });
 
-describe('POST /api/auth/refresh — re-issues from current DB state', () => {
-  // Cases 9, 10 & 11: the refreshed token must carry the CURRENT DB role and
-  // companyId, never the old token's stale claims.
-  it('signs the refreshed token from the DB role/companyId, not the stale claims', async () => {
-    // DB says the user is now a COMPANY_WORKER in company 5...
-    users = [await makeUserRow({ id: 1, role: Role.COMPANY_WORKER, companyId: 5 })];
-    // ...but the presented token still claims COMPANY_MANAGER / company 1.
-    const stale = signToken(1, Role.COMPANY_MANAGER, 1);
-
-    const res = await request(app).post('/api/auth/refresh').set('Cookie', [`token=${stale}`]);
-
-    expect(res.status).toBe(200);
-    const decoded = tokenFromSetCookie(res.headers['set-cookie'] as unknown as string[]);
-    expect(decoded.role).toBe('COMPANY_WORKER');
-    expect(decoded.companyId).toBe(5);
-  });
-
-  it('rejects refresh for a deleted user', async () => {
-    users = [];
-    const token = signToken(1, Role.COMPANY_MANAGER, 1);
-
-    const res = await request(app).post('/api/auth/refresh').set('Cookie', [`token=${token}`]);
-
-    expect(res.status).toBe(401);
-    expect(res.body.message).toBe(AUTH_REQUIRED);
-  });
-});
+// Refresh-token rotation re-signs the access token from the CURRENT DB row (not
+// stale claims), reuse detection, expiry, disabled-account denial, and the
+// single-use race are all covered as a service unit in refreshToken.test.ts and
+// end-to-end against a real DB in refreshToken.integration.test.ts.
