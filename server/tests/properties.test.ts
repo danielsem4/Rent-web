@@ -71,7 +71,8 @@ interface PropRow {
   contractStart: Date | null;
   contractEnd: Date | null;
   monthlyRent: number;
-  capacity: number;
+  maxCapacity: number;
+  total: number;
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -93,7 +94,8 @@ function makeProp(overrides: Partial<PropRow>): PropRow {
     contractStart: null,
     contractEnd: null,
     monthlyRent: 5000,
-    capacity: 3,
+    maxCapacity: 3,
+    total: 1,
     notes: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -185,7 +187,8 @@ const validCreateBody = (overrides: Record<string, unknown> = {}) => ({
   address: '5 Ben Gurion Ave',
   entryCode: '9999',
   monthlyRent: 4200,
-  capacity: 2,
+  maxCapacity: 4,
+  total: 2,
   ...overrides,
 });
 
@@ -354,6 +357,17 @@ describe('POST /api/properties — create isolation', () => {
     expect(JSON.stringify(created?.metadata)).not.toContain('SUPER-SECRET-CODE');
     expect((created?.metadata as { fields?: string[] })?.fields).toContain('entryCode');
   });
+
+  it('rejects total exceeding maxCapacity (400, occupancy invariant)', async () => {
+    const before = properties.length;
+    const res = await request(app)
+      .post('/api/properties')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ maxCapacity: 2, total: 5 }));
+    expect(res.status).toBe(400);
+    expect(properties.length).toBe(before); // nothing persisted
+  });
 });
 
 // ===========================================================================
@@ -389,6 +403,17 @@ describe('PATCH /api/properties/:id — update isolation', () => {
       .send({ city: 'Still A', companyId: COMPANY_B });
     expect(res.status).toBe(200);
     expect(res.body.property.companyId).toBe(COMPANY_A);
+  });
+
+  it('rejects a patch pushing total above the existing maxCapacity (400)', async () => {
+    // PROP_A seeded with maxCapacity 3; patching total to 9 must fail.
+    const res = await request(app)
+      .patch(`/api/properties/${PROP_A_ID}`)
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send({ total: 9 });
+    expect(res.status).toBe(400);
+    expect(properties.find((p) => p.id === PROP_A_ID)?.total).toBe(1); // untouched
   });
 });
 

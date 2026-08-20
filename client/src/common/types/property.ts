@@ -16,7 +16,10 @@ export interface IProperty {
   contractStart?: string | null;
   contractEnd?: string | null;
   monthlyRent: number;
-  capacity: number;
+  /** Maximum number of occupants the property can hold. */
+  maxCapacity: number;
+  /** Number of occupants currently living in the property. */
+  total: number;
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -37,6 +40,7 @@ export interface IPropertyInput {
   contractStart?: string;
   contractEnd?: string;
   monthlyRent?: number;
-  capacity?: number;
+  maxCapacity?: number;
+  total?: number;
   notes?: string;
 }

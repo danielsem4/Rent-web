@@ -3,22 +3,30 @@ import { useTranslation } from "react-i18next";
 import { Plus, Eye, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useAuthStore } from "@/store/useAuthStore";
 import { ROLES } from "@/common/types/role";
 import { useProperties } from "./hooks/queries/useProperties";
 import { useDeleteProperty } from "./hooks/queries/usePropertyMutations";
+import { OccupancyChip } from "./components/Occupancy";
 
 export default function Properties() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data: properties, isLoading, isError } = useProperties();
   const remove = useDeleteProperty();
   // UX-only gating — the server is the enforcement point (workers get 403 on writes).
   const role = useAuthStore((s) => s.user?.role);
   const canWrite = role === ROLES.COMPANY_MANAGER;
-
-  const onDelete = (id: number, label: string) => {
-    if (window.confirm(t("properties.confirmDelete", { label }))) remove.mutate(id);
-  };
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
@@ -52,61 +60,82 @@ export default function Properties() {
       )}
 
       {properties && properties.length > 0 && (
-        <Card>
-          {/* Container scrolls on narrow screens — the page never overflows sideways. */}
-          <CardContent className="overflow-x-auto p-0">
-            <table className="w-full text-start text-sm">
-              <thead className="text-muted-foreground border-b">
-                <tr>
-                  <th className="px-4 py-3 text-start font-medium">{t("properties.city")}</th>
-                  <th className="px-4 py-3 text-start font-medium">{t("properties.address")}</th>
-                  <th className="px-4 py-3 text-start font-medium">{t("properties.owner")}</th>
-                  <th className="px-4 py-3 text-end font-medium">{t("properties.rent")}</th>
-                  <th className="px-4 py-3 text-end font-medium">{t("properties.capacity")}</th>
-                  <th className="px-4 py-3 text-end font-medium">{t("properties.actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {properties.map((p) => (
-                  <tr key={p.id} className="border-b last:border-0">
-                    <td className="px-4 py-3">{p.city}</td>
-                    <td className="px-4 py-3">{p.address}</td>
-                    <td className="px-4 py-3">{p.ownerName ?? "—"}</td>
-                    <td className="px-4 py-3 text-end tabular-nums">{p.monthlyRent.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-end tabular-nums">{p.capacity}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1">
-                        <Button asChild variant="ghost" size="icon" aria-label={t("properties.view")}>
-                          <Link to={`/properties/${p.id}`}>
-                            <Eye className="size-4" />
-                          </Link>
-                        </Button>
-                        {canWrite && (
-                          <>
-                            <Button asChild variant="ghost" size="icon" aria-label={t("properties.edit")}>
-                              <Link to={`/properties/${p.id}/edit`}>
-                                <Pencil className="size-4" />
-                              </Link>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label={t("properties.delete")}
-                              disabled={remove.isPending}
-                              onClick={() => onDelete(p.id, `${p.city}, ${p.address}`)}
+        // Card grid: one column on phones, two from the small breakpoint — no
+        // horizontal scroll, unlike the previous wide table.
+        <div className="grid gap-3 sm:grid-cols-2">
+          {properties.map((p) => (
+            <Card key={p.id} className="flex flex-col">
+              <CardContent className="flex flex-1 flex-col gap-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{p.city}</p>
+                    <p className="text-muted-foreground truncate text-sm">{p.address}</p>
+                  </div>
+                  <OccupancyChip total={p.total} maxCapacity={p.maxCapacity} className="shrink-0" />
+                </div>
+
+                <dl className="mt-auto grid grid-cols-2 gap-2 text-sm">
+                  <div className="min-w-0">
+                    <dt className="text-muted-foreground text-xs">{t("properties.owner")}</dt>
+                    <dd className="truncate">{p.ownerName ?? "—"}</dd>
+                  </div>
+                  <div className="min-w-0 text-end">
+                    <dt className="text-muted-foreground text-xs">{t("properties.rent")}</dt>
+                    <dd className="tabular-nums font-medium">
+                      {p.monthlyRent.toLocaleString(i18n.language)}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="flex justify-end gap-1 border-t pt-2">
+                  <Button asChild variant="ghost" size="icon" aria-label={t("properties.view")}>
+                    <Link to={`/properties/${p.id}`}>
+                      <Eye className="size-4" />
+                    </Link>
+                  </Button>
+                  {canWrite && (
+                    <>
+                      <Button asChild variant="ghost" size="icon" aria-label={t("properties.edit")}>
+                        <Link to={`/properties/${p.id}/edit`}>
+                          <Pencil className="size-4" />
+                        </Link>
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t("properties.delete")}
+                            disabled={remove.isPending}
+                          >
+                            <Trash2 className="text-destructive size-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>{t("properties.delete")}</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {t("properties.confirmDelete", { label: `${p.city}, ${p.address}` })}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>{t("properties.cancel")}</AlertDialogCancel>
+                            <AlertDialogAction
+                              variant="destructive"
+                              onClick={() => remove.mutate(p.id)}
                             >
-                              <Trash2 className="text-destructive size-4" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+                              {t("properties.delete")}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -20,13 +20,17 @@ const city = z.string().min(1, 'City is required').max(120);
 const address = z.string().min(1, 'Address is required').max(200);
 const optionalText = z.string().max(200);
 const monthlyRent = z.coerce.number().int('Monthly rent must be a whole number').min(0);
-const capacity = z.coerce.number().int('Capacity must be a whole number').min(1);
+// `maxCapacity` is the maximum number of occupants (at least 1). `total` is the
+// current occupant count (0..maxCapacity); the `total <= maxCapacity` invariant is
+// enforced in the service where the full record (incl. partial-update baseline) is known.
+const maxCapacity = z.coerce.number().int('Max capacity must be a whole number').min(1);
+const total = z.coerce.number().int('Occupants must be a whole number').min(0);
 // Accept an ISO date string (what the client sends) and coerce to a Date for Prisma.
 const contractDate = z.coerce.date();
 
 /**
  * Body for POST /api/properties. `city` + `address` are required; everything else
- * is optional (the DB supplies defaults for `monthlyRent`/`capacity`).
+ * is optional (the DB supplies defaults for `monthlyRent`/`maxCapacity`/`total`).
  */
 export const createPropertySchema = z.object({
   city,
@@ -39,7 +43,8 @@ export const createPropertySchema = z.object({
   contractStart: contractDate.optional(),
   contractEnd: contractDate.optional(),
   monthlyRent: monthlyRent.optional(),
-  capacity: capacity.optional(),
+  maxCapacity: maxCapacity.optional(),
+  total: total.optional(),
   notes: z.string().max(2000).optional(),
 });
 
@@ -60,7 +65,8 @@ export const updatePropertySchema = z
     contractStart: contractDate.optional(),
     contractEnd: contractDate.optional(),
     monthlyRent: monthlyRent.optional(),
-    capacity: capacity.optional(),
+    maxCapacity: maxCapacity.optional(),
+    total: total.optional(),
     notes: z.string().max(2000).optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {

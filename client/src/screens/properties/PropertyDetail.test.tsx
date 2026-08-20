@@ -39,7 +39,8 @@ const property = (over: Partial<IProperty> = {}): IProperty => ({
   contractStart: "2026-01-01T00:00:00.000Z",
   contractEnd: "2026-12-31T00:00:00.000Z",
   monthlyRent: 5200,
-  capacity: 3,
+  maxCapacity: 3,
+  total: 1,
   notes: "Nice place",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -64,9 +65,16 @@ beforeEach(() => {
 describe("PropertyDetail", () => {
   it("renders the property fields, including entryCode", () => {
     renderDetail();
-    expect(screen.getByText("1 Herzl St")).toBeInTheDocument();
+    expect(screen.getByText("Tel Aviv, 1 Herzl St")).toBeInTheDocument();
     expect(screen.getByText("Owner One")).toBeInTheDocument();
     expect(screen.getByText("SECRET-1234")).toBeInTheDocument();
+  });
+
+  it("shows occupancy (current / max) in the overview", () => {
+    h.query = { data: property({ total: 2, maxCapacity: 5 }), isLoading: false, isError: false };
+    renderDetail();
+    // The occupancy bar renders a "2 / 5" label.
+    expect(screen.getByText("2 / 5")).toBeInTheDocument();
   });
 
   it("shows an Edit link for a manager, pointing at the edit route", () => {
@@ -78,7 +86,7 @@ describe("PropertyDetail", () => {
   it("hides the Edit link for a worker (UX gating)", () => {
     h.role = "COMPANY_WORKER";
     renderDetail();
-    expect(screen.getByText("1 Herzl St")).toBeInTheDocument();
+    expect(screen.getByText("Tel Aviv, 1 Herzl St")).toBeInTheDocument();
     expect(screen.queryByText("Edit")).not.toBeInTheDocument();
   });
 

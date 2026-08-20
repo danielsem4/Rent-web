@@ -32,6 +32,10 @@ export class PropertiesService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<PropertyRecord> {
+    // Occupancy invariant: current occupants (`total`) can never exceed the
+    // maximum (`maxCapacity`). Defaults mirror the schema (maxCapacity 1, total 0).
+    assertOccupancy(dto.total ?? 0, dto.maxCapacity ?? 1);
+
     // Company ownership always comes from the trusted context, never the body.
     const property = await this.repo.createInCompany({
       ...dto,
@@ -56,6 +60,16 @@ export class PropertiesService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<PropertyRecord> {
+    // Validate the occupancy invariant against the merged (existing + patch) state,
+    // since a partial update may touch only one of the two fields.
+    if (dto.maxCapacity !== undefined || dto.total !== undefined) {
+      const existing = await this.repo.findByIdInCompany(id, currentUser.companyId);
+      if (!existing) {
+        throw new AppError('Property not found', 404);
+      }
+      assertOccupancy(dto.total ?? existing.total, dto.maxCapacity ?? existing.maxCapacity);
+    }
+
     const updated = await this.repo.updateInCompany(id, currentUser.companyId, dto);
     if (!updated) {
       throw new AppError('Property not found', 404);
@@ -86,5 +100,12 @@ export class PropertiesService {
       actor: { userId: currentUser.userId, companyId: currentUser.companyId },
       context,
     });
+  }
+}
+
+/** Enforce the occupancy invariant: current occupants must not exceed the max. */
+function assertOccupancy(total: number, maxCapacity: number): void {
+  if (total > maxCapacity) {
+    throw new AppError('Current occupants cannot exceed the maximum capacity', 400);
   }
 }

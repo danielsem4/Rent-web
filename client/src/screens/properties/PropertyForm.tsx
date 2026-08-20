@@ -29,7 +29,8 @@ const EMPTY: PropertyFormValues = {
   contractStart: "",
   contractEnd: "",
   monthlyRent: 0,
-  capacity: 1,
+  maxCapacity: 1,
+  total: 0,
   notes: "",
 };
 
@@ -69,7 +70,8 @@ export default function PropertyForm() {
         contractStart: toDateInput(existing.contractStart),
         contractEnd: toDateInput(existing.contractEnd),
         monthlyRent: existing.monthlyRent,
-        capacity: existing.capacity,
+        maxCapacity: existing.maxCapacity,
+        total: existing.total,
         notes: existing.notes ?? "",
       });
     }
@@ -123,7 +125,8 @@ export default function PropertyForm() {
               {field("ownerName", "properties.ownerName")}
               {field("ownerPhone", "properties.ownerPhone")}
               {field("monthlyRent", "properties.rent", "number")}
-              {field("capacity", "properties.capacity", "number")}
+              {field("maxCapacity", "properties.maxCapacity", "number")}
+              {field("total", "properties.total", "number")}
               {field("entryCode", "properties.entryCode")}
               {field("electricMeter", "properties.electricMeter")}
               {field("waterMeter", "properties.waterMeter")}

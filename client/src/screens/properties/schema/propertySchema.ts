@@ -16,9 +16,18 @@ export const propertySchema = z.object({
   // Number inputs are registered with valueAsNumber, so these receive real
   // numbers. Kept non-negative / positive to match the DB invariants.
   monthlyRent: z.number({ message: "properties.errRent" }).int().min(0, "properties.errRent"),
-  capacity: z.number({ message: "properties.errCapacity" }).int().min(1, "properties.errCapacity"),
+  maxCapacity: z
+    .number({ message: "properties.errMaxCapacity" })
+    .int()
+    .min(1, "properties.errMaxCapacity"),
+  total: z.number({ message: "properties.errTotal" }).int().min(0, "properties.errTotal"),
   notes: z.string().optional(),
-});
+})
+  // Current occupants can never exceed the maximum capacity (mirrors the server).
+  .refine((v) => v.total <= v.maxCapacity, {
+    path: ["total"],
+    message: "properties.errTotalExceedsMax",
+  });
 
 export type PropertyFormValues = z.infer<typeof propertySchema>;
 
