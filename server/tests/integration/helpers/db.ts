@@ -1,23 +1,69 @@
 import bcrypt from 'bcrypt';
 import request from 'supertest';
 import type { Application } from 'express';
-import { authenticator } from 'otplib';
 import prisma from '../../../src/lib/prisma';
+import { createApp, type AppOverrides } from '../../../src/app';
+import type { AppConfig } from '../../../src/shared/config/env';
 import { Role } from '../../../src/shared/constants/roles';
 import type { SafeUser } from '../../../src/modules/auth/auth.repository';
-import { encryptSecret } from '../../../src/shared/utils/encryption';
+import type { AccountMailer } from '../../../src/shared/notifications/mailer';
 import { assertTestDatabase } from './guard';
 
 export const TEST_PASSWORD = 'password123';
 
 /**
- * Fixed TOTP secret the seeded PRIVILEGED users (managerA/managerB/superAdmin)
- * are enrolled with, so `loginAs` can compute a valid second-factor code and
- * complete the mandatory-MFA login. Non-privileged users are not enrolled.
+ * Shared capturing mailer for the integration suite. Secrets (invitation/reset
+ * tokens, the email-OTP 2FA code) are delivered ONLY via the mailer — the DB
+ * stores just their hash — so tests capture them here to drive flows end-to-end.
  */
-export const MFA_TEST_SECRET = 'JBSWY3DPEHPK3PXP';
+export interface DeliveredMail {
+  kind: 'invitation' | 'reset' | 'mfa';
+  to: string;
+  token?: string;
+  code?: string;
+}
 
-/** Roles for which MFA is mandatory (mirrors AuthService.isPrivileged). */
+function tokenOf(link: string): string {
+  return new URL(link).searchParams.get('token') ?? '';
+}
+
+class TestMailer implements AccountMailer {
+  readonly delivered: DeliveredMail[] = [];
+  async sendInvitation(to: string, link: string): Promise<void> {
+    this.delivered.push({ kind: 'invitation', to, token: tokenOf(link) });
+  }
+  async sendPasswordReset(to: string, link: string): Promise<void> {
+    this.delivered.push({ kind: 'reset', to, token: tokenOf(link) });
+  }
+  async sendMfaCode(to: string, code: string): Promise<void> {
+    this.delivered.push({ kind: 'mfa', to, code });
+  }
+  /** Latest emailed 2FA code for an address (loginAs uses this). */
+  lastMfaCode(email: string): string | undefined {
+    for (let i = this.delivered.length - 1; i >= 0; i--) {
+      const d = this.delivered[i]!;
+      if (d.kind === 'mfa' && d.to === email) return d.code;
+    }
+    return undefined;
+  }
+  reset(): void {
+    this.delivered.length = 0;
+  }
+}
+
+/** The single mailer every integration app is wired with (see `createTestApp`). */
+export const testMailer = new TestMailer();
+
+/**
+ * Build an app for integration tests, always wired with the shared capturing
+ * `testMailer` so `loginAs` can recover the emailed 2FA code. Extra overrides
+ * (e.g. a custom audit logger) still apply; the mailer is fixed.
+ */
+export function createTestApp(config?: AppConfig, overrides?: Omit<AppOverrides, 'mailer'>): Application {
+  return createApp(config, { ...overrides, mailer: testMailer });
+}
+
+/** Roles for which 2FA is mandatory (mirrors AuthService.isPrivileged). */
 function isPrivileged(role: Role): boolean {
   return role === Role.SUPER_ADMIN || role === Role.COMPANY_MANAGER;
 }
@@ -44,6 +90,8 @@ export async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(
     'TRUNCATE TABLE "AuditLog", "User", "Company" RESTART IDENTITY CASCADE',
   );
+  // Clear captured mail so each test starts with an empty delivery log.
+  testMailer.reset();
 }
 
 export interface SeededUser {
@@ -83,14 +131,10 @@ export async function seedTenants(): Promise<SeededTenants> {
     role: Role,
     companyId: number,
   ): Promise<SeededUser> => {
-    // Privileged roles are MFA-mandatory: seed them ENROLLED with the fixed test
-    // secret so loginAs can complete the second factor. Non-privileged users stay
-    // unenrolled and log in one-step.
-    const mfa = isPrivileged(role)
-      ? { isMfaEnabled: true, mfaSecret: encryptSecret(MFA_TEST_SECRET) }
-      : {};
+    // Email-OTP 2FA has no enrollment: privileged users simply get an emailed code
+    // at login (loginAs completes it via the captured code). Nothing to seed here.
     const u = await prisma.user.create({
-      data: { email, name, role, companyId, passwordHash: hash, ...mfa },
+      data: { email, name, role, companyId, passwordHash: hash },
     });
     return { id: u.id, email: u.email, role: u.role, companyId: u.companyId };
   };
@@ -122,15 +166,19 @@ export async function loginAs(
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.body)}`);
   }
 
-  // Non-MFA users get a session directly. Privileged (MFA-enrolled) users get a
-  // challenge token — complete the second factor with a code from MFA_TEST_SECRET.
+  // Non-privileged users get a session directly. Privileged users get a challenge
+  // token — complete the second factor with the code captured from the mailer.
   if (!res.body.mfaRequired) {
     return { cookie: res.headers['set-cookie'] as unknown as string[], user: res.body.user as SafeUser };
   }
 
+  const code = testMailer.lastMfaCode(email);
+  if (!code) {
+    throw new Error(`no MFA code was emailed for ${email} (is the app using createTestApp?)`);
+  }
   const challenge = await request(app)
     .post('/api/auth/mfa/challenge')
-    .send({ mfaToken: res.body.mfaToken, code: authenticator.generate(MFA_TEST_SECRET) });
+    .send({ mfaToken: res.body.mfaToken, code });
   if (challenge.status !== 200) {
     throw new Error(`MFA challenge failed for ${email}: ${challenge.status} ${JSON.stringify(challenge.body)}`);
   }

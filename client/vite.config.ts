@@ -14,6 +14,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    // jest-dom matchers + a working Storage polyfill (jsdom's default is unusable
+    // under its opaque origin, which breaks modules reading persisted state).
+    setupFiles: ["./src/test/setup.ts"],
   },
   server: {
     proxy: {

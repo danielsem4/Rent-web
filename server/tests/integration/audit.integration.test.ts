@@ -1,32 +1,21 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import prisma from '../../src/lib/prisma';
-import { createApp } from '../../src/app';
-import type { AccountMailer } from '../../src/shared/notifications/mailer';
 import {
   resetDatabase,
   seedTenants,
   loginAs,
+  createTestApp,
+  testMailer,
   TEST_PASSWORD,
   type SeededTenants,
 } from './helpers/db';
 
-// Capture invite/reset links so the account flows can be driven end-to-end.
-const delivered: Array<{ kind: 'invitation' | 'reset'; to: string; token: string }> = [];
-const captureMailer: AccountMailer = {
-  sendInvitation: async (to, link) => {
-    delivered.push({ kind: 'invitation', to, token: tokenOf(link) });
-  },
-  sendPasswordReset: async (to, link) => {
-    delivered.push({ kind: 'reset', to, token: tokenOf(link) });
-  },
-};
-function tokenOf(link: string): string {
-  return new URL(link).searchParams.get('token') ?? '';
-}
+// Capture invite/reset links (+ 2FA codes) so account flows drive end-to-end.
+const delivered = testMailer.delivered;
 
 // Default (real) audit logger — this suite asserts rows land in the AuditLog table.
-const app = createApp(undefined, { mailer: captureMailer });
+const app = createTestApp();
 const ORIGIN = process.env['CLIENT_URL'] || 'http://localhost:5173';
 
 let t: SeededTenants;

@@ -25,10 +25,6 @@ process.env['NODE_ENV'] = 'test';
 if (!process.env['JWT_SECRET']) {
   process.env['JWT_SECRET'] = 'integration-test-secret';
 }
-// Key for encrypting seeded users' TOTP secrets at rest (see helpers/db.ts).
-if (!process.env['MFA_ENCRYPTION_KEY']) {
-  process.env['MFA_ENCRYPTION_KEY'] = 'integration-test-mfa-encryption-key';
-}
 
 // Silence structured operational logs so the suite output stays readable. Audit
 // records still go to the real DB (that is what these tests assert on); this only

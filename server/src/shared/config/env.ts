@@ -43,23 +43,41 @@ export interface RateLimitConfig {
     windowMs: number;
     max: number;
   };
+  mfaResend: {
+    windowMs: number;
+    max: number;
+  };
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
+
+/**
+ * SMTP delivery config for outbound mail (email-OTP 2FA, invitations, resets).
+ * When absent, the app falls back to the console mailer (dev only — it fails
+ * closed in production). Required as a complete set in production.
+ */
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  /** From-address applied to every outbound message. */
+  from: string;
+}
 
 export interface AppConfig {
   nodeEnv: string;
   isProduction: boolean;
   port: number;
   jwtSecret: string;
-  /**
-   * Key for AES-256-GCM encryption of TOTP secrets at rest (SECURITY_PRINCIPLES.md
-   * §8). Required + strong in production (fail-fast, like `jwtSecret`); lenient in
-   * dev/test. The `encryption` util derives a 32-byte key via SHA-256 of this value.
-   */
-  mfaEncryptionKey: string;
   databaseUrl: string | undefined;
   clientUrl: string | undefined;
+  /**
+   * SMTP delivery config (SECURITY_PRINCIPLES.md §7). `undefined` = no provider →
+   * the console mailer is used (dev-only; it fails closed in production). Required
+   * as a complete set in production so outbound mail (incl. the 2FA code) works.
+   */
+  smtp: SmtpConfig | undefined;
   /** Rate-limit policy values (SECURITY_PRINCIPLES.md §15/§28). */
   rateLimit: RateLimitConfig;
   /**
@@ -121,7 +139,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const isProduction = nodeEnv === 'production';
 
   const jwtSecret = env['JWT_SECRET'];
-  const mfaEncryptionKey = env['MFA_ENCRYPTION_KEY'];
   const databaseUrl = env['DATABASE_URL'];
   const clientUrl = env['CLIENT_URL'];
   const rawPort = env['PORT'];
@@ -137,24 +154,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
     if (isPlaceholder(jwtSecret)) {
       errors.push('JWT_SECRET is a known placeholder/insecure value and must be replaced');
-    }
-  }
-
-  // MFA_ENCRYPTION_KEY — encrypts TOTP secrets at rest (§8). Required + strong in
-  // production (same discipline as JWT_SECRET); dev/test fall back to a non-secret
-  // default so the mocked suites keep working without configuration.
-  if (isProduction) {
-    if (!mfaEncryptionKey || mfaEncryptionKey.length === 0) {
-      errors.push('MFA_ENCRYPTION_KEY is required in production');
-    } else {
-      if (mfaEncryptionKey.length < MIN_JWT_SECRET_LENGTH) {
-        errors.push(
-          `MFA_ENCRYPTION_KEY is too weak (must be at least ${MIN_JWT_SECRET_LENGTH} characters)`,
-        );
-      }
-      if (isPlaceholder(mfaEncryptionKey)) {
-        errors.push('MFA_ENCRYPTION_KEY is a known placeholder/insecure value and must be replaced');
-      }
     }
   }
 
@@ -239,7 +238,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       windowMs: readPositiveInt(env, 'RATE_LIMIT_MFA_VERIFY_WINDOW_MS', rl.mfaVerify.windowMs, errors),
       max: readPositiveInt(env, 'RATE_LIMIT_MFA_VERIFY_MAX', rl.mfaVerify.max, errors),
     },
+    mfaResend: {
+      windowMs: readPositiveInt(env, 'RATE_LIMIT_MFA_RESEND_WINDOW_MS', rl.mfaResend.windowMs, errors),
+      max: readPositiveInt(env, 'RATE_LIMIT_MFA_RESEND_MAX', rl.mfaResend.max, errors),
+    },
   };
+
+  // SMTP — outbound mail provider. Absent => console mailer (dev only). In
+  // production the full set is required (fail closed rather than silently dropping
+  // the 2FA code / invitations). Validated as a complete group.
+  const smtp = readSmtpConfig(env, isProduction, errors);
 
   // TRUST_PROXY — optional. Absent => undefined (OFF, secure default). When
   // present it must be a positive integer hop count (fail closed otherwise); we
@@ -261,14 +269,53 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port,
     // Presence guaranteed above (JWT_SECRET) / allowed-absent in dev.
     jwtSecret: jwtSecret as string,
-    // Non-secret dev/test fallback (required + strong in prod, validated above).
-    mfaEncryptionKey: mfaEncryptionKey ?? 'dev-mfa-encryption-key-not-for-production',
     databaseUrl,
     clientUrl,
+    smtp,
     rateLimit,
     trustProxy,
     logLevel,
   };
+}
+
+/**
+ * Read SMTP config as a complete group. Returns `undefined` when NO `SMTP_*` var
+ * is set (dev falls back to the console mailer). If any is set, all of
+ * `SMTP_HOST/PORT/USER/PASS` + `MAIL_FROM` must be present and valid. In production
+ * the full set is mandatory even if none is provided (fail closed).
+ */
+function readSmtpConfig(
+  env: NodeJS.ProcessEnv,
+  isProduction: boolean,
+  errors: string[],
+): SmtpConfig | undefined {
+  const host = env['SMTP_HOST'];
+  const rawPort = env['SMTP_PORT'];
+  const user = env['SMTP_USER'];
+  const pass = env['SMTP_PASS'];
+  const from = env['MAIL_FROM'];
+
+  const anySet = [host, rawPort, user, pass, from].some((v) => v !== undefined && v !== '');
+  if (!anySet) {
+    if (isProduction) {
+      errors.push('SMTP configuration (SMTP_HOST/PORT/USER/PASS, MAIL_FROM) is required in production');
+    }
+    return undefined;
+  }
+
+  const port = Number(rawPort);
+  if (!host) errors.push('SMTP_HOST is required when SMTP is configured');
+  if (rawPort === undefined || rawPort === '' || !Number.isInteger(port) || port <= 0 || port > 65535) {
+    errors.push('SMTP_PORT must be a valid port number when SMTP is configured');
+  }
+  if (!user) errors.push('SMTP_USER is required when SMTP is configured');
+  if (!pass) errors.push('SMTP_PASS is required when SMTP is configured');
+  if (!from) errors.push('MAIL_FROM is required when SMTP is configured');
+
+  if (!host || !user || !pass || !from || !Number.isInteger(port) || port <= 0 || port > 65535) {
+    return undefined;
+  }
+  return { host, port, user, pass, from };
 }
 
 const LOG_LEVELS: readonly LogLevel[] = ['debug', 'info', 'warn', 'error', 'silent'];

@@ -1,7 +1,6 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
-import QRCode from 'qrcode';
 import { AppError } from '../../shared/errors/AppError';
 import { Role } from '../../shared/constants/roles';
 import {
@@ -13,14 +12,19 @@ import {
 } from '../../shared/config/jwt';
 import { AUDIT_ACTIONS, RESOURCE_TYPES, type AuditAction } from '../../shared/constants/auditActions';
 import { generateToken, hashToken } from '../../shared/utils/token';
-import { generateTotpSecret, buildOtpAuthUrl, verifyTotp } from '../../shared/utils/totp';
-import { encryptSecret, decryptSecret } from '../../shared/utils/encryption';
-import { generateRecoveryCodes, hashRecoveryCode } from '../../shared/utils/recoveryCodes';
+import {
+  generateNumericOtp,
+  hashOtp,
+  verifyOtp,
+  OTP_TTL_MS,
+  OTP_MAX_ATTEMPTS,
+} from '../../shared/utils/otp';
 import { signMfaToken, verifyMfaToken } from '../../shared/utils/mfaToken';
+import type { AccountMailer } from '../../shared/notifications/mailer';
 import type { AuditContext, IAuditLogger } from '../../shared/audit/auditLogger';
 import type { AuthState, IAuthRepository, SafeUser } from './auth.repository';
 import type { IRefreshTokenRepository } from './refreshToken.repository';
-import type { IMfaRepository, MfaContext } from './mfa.repository';
+import type { IMfaRepository } from './mfa.repository';
 import type { LoginDto } from './auth.schema';
 
 /** A minted session: a short-lived access JWT + a raw (un-hashed) refresh token. */
@@ -36,17 +40,15 @@ export interface SessionResult {
   tokens: SessionTokens;
 }
 
-/** Credentials were valid but a second factor (or enrollment) is required first. */
+/** Credentials were valid but a second factor (emailed code) is required first. */
 export interface MfaChallengeResult {
   kind: 'mfa';
   mfaToken: string;
-  /** true = the user must ENROLL (no secret yet); false = verify an existing TOTP. */
-  setupRequired: boolean;
 }
 
 export type LoginResult = SessionResult | MfaChallengeResult;
 
-/** Roles for which MFA is mandatory (SECURITY_PRINCIPLES.md §3/§24). */
+/** Roles for which 2FA is mandatory (SECURITY_PRINCIPLES.md §3/§24). */
 function isPrivileged(role: Role): boolean {
   return role === Role.SUPER_ADMIN || role === Role.COMPANY_MANAGER;
 }
@@ -57,6 +59,7 @@ export class AuthService {
     private readonly refreshRepo: IRefreshTokenRepository,
     private readonly mfaRepo: IMfaRepository,
     private readonly audit: IAuditLogger,
+    private readonly mailer: AccountMailer,
   ) {}
 
   private sign(userId: number, role: Role, companyId: number, tokenVersion: number): string {
@@ -159,28 +162,36 @@ export class AuthService {
       companyId: user.companyId,
     };
 
-    // MFA is mandatory for privileged roles and for anyone who has enabled it.
-    const mustMfa = user.isMfaEnabled || isPrivileged(user.role);
-    if (!mustMfa) {
+    // 2FA is mandatory for privileged roles (SECURITY_PRINCIPLES.md §3/§24).
+    if (!isPrivileged(user.role)) {
       return this.issueSession(user, safeUser, context, AUDIT_ACTIONS.AUTH_LOGIN_SUCCESS, {
         result: 'success',
       });
     }
 
-    // Second factor required — issue a short-lived challenge/enroll token (NO
-    // session cookies). Enrolled users verify a code; privileged-but-unenrolled
-    // users are hard-gated into enrollment before any session (fail closed).
-    const purpose = user.isMfaEnabled ? 'mfa_challenge' : 'mfa_enroll';
-    const mfaToken = signMfaToken(user.id, purpose);
+    // Second factor required — email a one-time code and issue a short-lived
+    // challenge token (NO session cookies). The code's hash is stored server-side;
+    // the client posts the token + code to /mfa/challenge to complete login.
+    await this.issueEmailCode(user.id, user.email);
+    const mfaToken = signMfaToken(user.id, 'mfa_challenge');
     await this.audit.log({
       action: AUDIT_ACTIONS.MFA_CHALLENGE_ISSUED,
       resourceType: RESOURCE_TYPES.AUTH,
       resourceId: String(user.id),
       actor: { userId: user.id, companyId: user.companyId },
       context,
-      metadata: { mode: user.isMfaEnabled ? 'challenge' : 'enroll' },
+      metadata: { channel: 'email' },
     });
-    return { kind: 'mfa', mfaToken, setupRequired: !user.isMfaEnabled };
+    return { kind: 'mfa', mfaToken };
+  }
+
+  /** Generate a fresh email OTP, persist its hash + expiry, and send it. */
+  private async issueEmailCode(userId: number, email: string): Promise<void> {
+    const code = generateNumericOtp();
+    await this.mfaRepo.saveEmailCode(userId, hashOtp(code), new Date(Date.now() + OTP_TTL_MS));
+    // Delivery is a mailer concern; the console mailer prints it in dev, SMTP sends
+    // it in prod. The plaintext code is never persisted or logged here.
+    await this.mailer.sendMfaCode(email, code);
   }
 
   async getMe(userId: number): Promise<SafeUser> {
@@ -193,8 +204,10 @@ export class AuthService {
 
   /**
    * Second-factor login (SECURITY_PRINCIPLES.md §3). Verifies the challenge token,
-   * then a TOTP code or a single-use recovery code, and only then mints a full
-   * session. Every failure is audited and returns the same generic 401.
+   * then the emailed one-time code (constant-time hash compare, expiry + attempt
+   * checks), and only then mints a full session. The code is single-use: it is
+   * cleared on success, on expiry, and once the attempt cap is hit (forcing a
+   * resend). Every failure is audited and returns the same generic 401.
    */
   async completeMfaChallenge(
     mfaToken: string,
@@ -204,56 +217,65 @@ export class AuthService {
     const userId = verifyMfaToken(mfaToken, 'mfa_challenge');
 
     const authState = await this.repo.findAuthById(userId);
-    const mfa = await this.mfaRepo.getMfa(userId);
-    if (!authState || !authState.isActive || !mfa || !mfa.isMfaEnabled || !mfa.mfaSecret) {
-      await this.auditMfaFailure(userId, context, 'not_enrolled_or_inactive');
-      throw new AppError('Invalid or expired MFA token', 401);
+    const otp = await this.mfaRepo.getEmailCode(userId);
+    if (!authState || !authState.isActive || !otp || !otp.codeHash || !otp.codeExpiresAt) {
+      await this.auditMfaFailure(userId, context, 'no_active_code_or_inactive');
+      throw new AppError('Invalid or expired code', 401);
     }
 
-    const method = await this.verifyMfaCode(userId, code, mfa);
-    if (!method) {
+    // Expired, or too many wrong attempts already — invalidate and force a resend.
+    if (otp.codeExpiresAt.getTime() <= Date.now() || otp.codeAttempts >= OTP_MAX_ATTEMPTS) {
+      await this.mfaRepo.clearEmailCode(userId);
+      await this.auditMfaFailure(userId, context, 'code_expired_or_locked');
+      throw new AppError('Invalid or expired code', 401);
+    }
+
+    if (!verifyOtp(code, otp.codeHash)) {
+      const attempts = await this.mfaRepo.incrementAttempts(userId);
+      if (attempts >= OTP_MAX_ATTEMPTS) {
+        // Cap reached on this try — burn the code so it cannot be brute-forced further.
+        await this.mfaRepo.clearEmailCode(userId);
+      }
       await this.auditMfaFailure(userId, context, 'invalid_code');
-      throw new AppError('Invalid authentication code', 401);
+      throw new AppError('Invalid or expired code', 401);
     }
 
     const safeUser = await this.repo.findById(userId);
     if (!safeUser) {
-      throw new AppError('Invalid or expired MFA token', 401);
+      throw new AppError('Invalid or expired code', 401);
     }
 
-    if (method === 'recovery') {
-      await this.audit.log({
-        action: AUDIT_ACTIONS.MFA_RECOVERY_CODE_USED,
-        resourceType: RESOURCE_TYPES.AUTH,
-        resourceId: String(userId),
-        actor: { userId, companyId: authState.companyId },
-        context,
-      });
-    }
+    // Success — consume the single-use code before issuing the session.
+    await this.mfaRepo.clearEmailCode(userId);
     return this.issueSession(authState, safeUser, context, AUDIT_ACTIONS.MFA_LOGIN_SUCCESS, {
-      method,
+      method: 'email',
     });
   }
 
-  /** Try TOTP, then a single-use recovery code. Returns the method used, or null. */
-  private async verifyMfaCode(
-    userId: number,
-    code: string,
-    mfa: MfaContext,
-  ): Promise<'totp' | 'recovery' | null> {
-    if (mfa.mfaSecret) {
-      try {
-        if (verifyTotp(code, decryptSecret(mfa.mfaSecret))) {
-          return 'totp';
-        }
-      } catch {
-        // Decryption failure (misconfig/tamper) — fall through to recovery, fail closed.
-      }
+  /**
+   * Re-send the emailed code for a pending challenge (SECURITY_PRINCIPLES.md §3).
+   * Verifies the challenge token, re-checks the user is still active + privileged,
+   * issues a FRESH code (resetting the attempt counter), and returns a new
+   * challenge token so its lifetime tracks the new code. Rate-limited at the route.
+   */
+  async resendMfaCode(mfaToken: string, context: AuditContext): Promise<{ mfaToken: string }> {
+    const userId = verifyMfaToken(mfaToken, 'mfa_challenge');
+    const authState = await this.repo.findAuthById(userId);
+    const user = await this.repo.findById(userId);
+    if (!authState || !authState.isActive || !user || !isPrivileged(authState.role)) {
+      throw new AppError('Invalid or expired MFA token', 401);
     }
-    if (await this.mfaRepo.consumeRecoveryCode(userId, hashRecoveryCode(code))) {
-      return 'recovery';
-    }
-    return null;
+
+    await this.issueEmailCode(userId, user.email);
+    await this.audit.log({
+      action: AUDIT_ACTIONS.MFA_CHALLENGE_ISSUED,
+      resourceType: RESOURCE_TYPES.AUTH,
+      resourceId: String(userId),
+      actor: { userId, companyId: authState.companyId },
+      context,
+      metadata: { channel: 'email', resend: true },
+    });
+    return { mfaToken: signMfaToken(userId, 'mfa_challenge') };
   }
 
   private async auditMfaFailure(
@@ -268,126 +290,6 @@ export class AuthService {
       actor: { userId },
       context,
       metadata: { reason },
-    });
-  }
-
-  /**
-   * Begin TOTP enrollment: generate a secret, persist it ENCRYPTED as pending
-   * (MFA stays disabled until verify-setup), and return the provisioning data
-   * (otpauth URI + QR data URL + plaintext recovery codes shown ONCE).
-   */
-  async beginMfaSetup(userId: number): Promise<{
-    otpauthUrl: string;
-    qrDataUrl: string;
-    recoveryCodes: string[];
-  }> {
-    const mfa = await this.mfaRepo.getMfa(userId);
-    const safeUser = await this.repo.findById(userId);
-    if (!mfa || !safeUser) {
-      throw new AppError('User not found', 404);
-    }
-    if (mfa.isMfaEnabled) {
-      // No silent secret rotation — disable first (with step-up) to re-enroll.
-      throw new AppError('MFA is already enabled', 409);
-    }
-
-    const secret = generateTotpSecret();
-    const otpauthUrl = buildOtpAuthUrl(safeUser.email, secret);
-    const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
-    const recoveryCodes = generateRecoveryCodes();
-
-    await this.mfaRepo.savePendingSecret(
-      userId,
-      encryptSecret(secret),
-      recoveryCodes.map(hashRecoveryCode),
-    );
-
-    return { otpauthUrl, qrDataUrl, recoveryCodes };
-  }
-
-  /**
-   * Complete enrollment: verify a TOTP code against the pending secret and enable
-   * MFA. When reached mid-login via an enroll token (`enrollMode`), a full session
-   * is issued so the just-enrolled user is logged in.
-   */
-  async completeMfaSetup(
-    userId: number,
-    code: string,
-    context: AuditContext,
-    enrollMode: boolean,
-  ): Promise<SessionResult | null> {
-    const mfa = await this.mfaRepo.getMfa(userId);
-    if (!mfa || !mfa.mfaSecret) {
-      throw new AppError('MFA setup has not been started', 400);
-    }
-    if (mfa.isMfaEnabled) {
-      throw new AppError('MFA is already enabled', 409);
-    }
-    if (!verifyTotp(code, decryptSecret(mfa.mfaSecret))) {
-      throw new AppError('Invalid authentication code', 400);
-    }
-
-    await this.mfaRepo.enableMfa(userId);
-    await this.audit.log({
-      action: AUDIT_ACTIONS.MFA_SETUP_COMPLETED,
-      resourceType: RESOURCE_TYPES.AUTH,
-      resourceId: String(userId),
-      actor: { userId },
-      context,
-    });
-
-    if (!enrollMode) {
-      return null; // caller already had a session (voluntary enrollment)
-    }
-    const authState = await this.repo.findAuthById(userId);
-    const safeUser = await this.repo.findById(userId);
-    if (!authState || !authState.isActive || !safeUser) {
-      throw new AppError('Authentication required', 401);
-    }
-    return this.issueSession(authState, safeUser, context, AUDIT_ACTIONS.MFA_LOGIN_SUCCESS, {
-      via: 'enrollment',
-    });
-  }
-
-  /**
-   * Disable MFA after a step-up check (current password OR a valid TOTP code).
-   * Clears all secret material. A privileged user who disables MFA is forced back
-   * into enrollment on their next login (login re-gates), so this never bypasses
-   * the mandatory requirement — it only resets the factor.
-   */
-  async disableMfa(
-    userId: number,
-    input: { password?: string; code?: string },
-    context: AuditContext,
-  ): Promise<void> {
-    const mfa = await this.mfaRepo.getMfa(userId);
-    if (!mfa || !mfa.isMfaEnabled) {
-      throw new AppError('MFA is not enabled', 400);
-    }
-
-    let verified = false;
-    if (input.code && mfa.mfaSecret) {
-      try {
-        verified = verifyTotp(input.code, decryptSecret(mfa.mfaSecret));
-      } catch {
-        verified = false;
-      }
-    }
-    if (!verified && input.password) {
-      const passwordHash = await this.mfaRepo.getPasswordHash(userId);
-      verified = passwordHash ? await bcrypt.compare(input.password, passwordHash) : false;
-    }
-    if (!verified) {
-      throw new AppError('Invalid credentials', 401);
-    }
-
-    await this.mfaRepo.disableMfa(userId);
-    await this.audit.log({
-      action: AUDIT_ACTIONS.MFA_DISABLED,
-      resourceType: RESOURCE_TYPES.AUTH,
-      resourceId: String(userId),
-      actor: { userId },
-      context,
     });
   }
 

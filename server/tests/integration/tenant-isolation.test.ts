@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import prisma from '../../src/lib/prisma';
-import { createApp } from '../../src/app';
-import { resetDatabase, seedTenants, loginAs, type SeededTenants } from './helpers/db';
+import { resetDatabase, seedTenants, loginAs, createTestApp, type SeededTenants } from './helpers/db';
 
-const app = createApp();
+const app = createTestApp();
 let t: SeededTenants;
 let managerA: string[];
 let managerB: string[];

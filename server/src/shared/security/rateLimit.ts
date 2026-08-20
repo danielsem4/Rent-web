@@ -167,3 +167,18 @@ export function createMfaVerifyRateLimiter(cfg: RateLimitConfig['mfaVerify']) {
     },
   });
 }
+
+/**
+ * MFA code-resend limiter (SECURITY_PRINCIPLES.md §15) — mounted on the resend
+ * endpoint. The resend body carries only an opaque `mfaToken` (no email), so this
+ * is keyed per-IP to bound how fast one source can trigger outbound emails
+ * (anti email-bombing). Tighter than `mfaVerify`; window-based (no permanent lockout).
+ */
+export function createMfaResendRateLimiter(cfg: RateLimitConfig['mfaResend']) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: cfg.windowMs,
+    limit: cfg.max,
+    keyGenerator: ipKey,
+  });
+}

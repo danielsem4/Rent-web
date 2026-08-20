@@ -6,10 +6,15 @@ const STRONG_SECRET = 'x7Kd9Qp2Rm5Tn8Vb1Wc4Ye6Zg0Hj3Lo9Su2Ad5Fh8'; // 40+ chars,
 const validProd = (): NodeJS.ProcessEnv => ({
   NODE_ENV: 'production',
   JWT_SECRET: STRONG_SECRET,
-  MFA_ENCRYPTION_KEY: 'Zx3Bq9Lt2Mv6Pw1Cy4Rn7Ke0Hs5Ud8Ff2Ag6Jl9Q', // 40+ chars, not a placeholder
   DATABASE_URL: 'postgresql://user:pass@db.internal:5432/rentplus',
   CLIENT_URL: 'https://app.rentplus.example',
   PORT: '5001',
+  // SMTP is required as a complete set in production (outbound mail incl. 2FA code).
+  SMTP_HOST: 'smtp.rentplus.example',
+  SMTP_PORT: '587',
+  SMTP_USER: 'mailer',
+  SMTP_PASS: 'mailer-pass',
+  MAIL_FROM: 'no-reply@rentplus.example',
 });
 
 describe('loadConfig — production fail-fast', () => {
@@ -51,22 +56,30 @@ describe('loadConfig — production fail-fast', () => {
     }
   });
 
-  it('throws when MFA_ENCRYPTION_KEY is missing in production (naming the variable)', () => {
+  it('throws when SMTP is not configured in production (naming SMTP)', () => {
     const env = validProd();
-    delete env['MFA_ENCRYPTION_KEY'];
-    expect(() => loadConfig(env)).toThrow(/MFA_ENCRYPTION_KEY/);
+    delete env['SMTP_HOST'];
+    delete env['SMTP_PORT'];
+    delete env['SMTP_USER'];
+    delete env['SMTP_PASS'];
+    delete env['MAIL_FROM'];
+    expect(() => loadConfig(env)).toThrow(/SMTP/);
   });
 
-  it('throws when MFA_ENCRYPTION_KEY is a known placeholder (without echoing it)', () => {
-    const env = { ...validProd(), MFA_ENCRYPTION_KEY: 'change-me-in-production' };
-    try {
-      loadConfig(env);
-      throw new Error('expected loadConfig to throw');
-    } catch (err) {
-      expect(err).toBeInstanceOf(ConfigError);
-      expect((err as Error).message).toContain('MFA_ENCRYPTION_KEY');
-      expect((err as Error).message).not.toContain('change-me-in-production');
-    }
+  it('throws when SMTP is partially configured (missing MAIL_FROM)', () => {
+    const env = validProd();
+    delete env['MAIL_FROM'];
+    expect(() => loadConfig(env)).toThrow(/MAIL_FROM/);
+  });
+
+  it('builds the smtp config from a complete set', () => {
+    const cfg = loadConfig(validProd());
+    expect(cfg.smtp).toMatchObject({
+      host: 'smtp.rentplus.example',
+      port: 587,
+      user: 'mailer',
+      from: 'no-reply@rentplus.example',
+    });
   });
 
   it('throws when DATABASE_URL is missing in production', () => {

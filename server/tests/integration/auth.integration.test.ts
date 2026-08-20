@@ -1,9 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
-import { createApp } from '../../src/app';
-import { resetDatabase, seedTenants, loginAs, TEST_PASSWORD, type SeededTenants } from './helpers/db';
+import {
+  resetDatabase,
+  seedTenants,
+  loginAs,
+  createTestApp,
+  TEST_PASSWORD,
+  type SeededTenants,
+} from './helpers/db';
 
-const app = createApp();
+const app = createTestApp();
 let t: SeededTenants;
 
 beforeEach(async () => {

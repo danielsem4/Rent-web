@@ -1,11 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { AuthService, SessionTokens } from './auth.service';
-import type {
-  LoginDto,
-  MfaChallengeDto,
-  MfaVerifySetupDto,
-  MfaDisableDto,
-} from './auth.schema';
+import type { LoginDto, MfaChallengeDto, MfaResendDto } from './auth.schema';
 import { buildAuditContext } from '../../shared/audit/auditLogger';
 import {
   AUTH_COOKIE_NAME,
@@ -38,13 +33,9 @@ export function createAuthController(service: AuthService) {
           res.json({ user: result.user });
           return;
         }
-        // Second factor required — NO session cookies yet. The client posts the
-        // mfaToken (+ code) to /mfa/challenge, or /mfa/setup when setup is required.
-        res.json({
-          mfaRequired: true,
-          mfaToken: result.mfaToken,
-          ...(result.setupRequired ? { mfaSetupRequired: true } : {}),
-        });
+        // Second factor required — NO session cookies yet. A one-time code was
+        // emailed; the client posts the mfaToken + code to /mfa/challenge.
+        res.json({ mfaRequired: true, mfaToken: result.mfaToken });
       } catch (err) {
         next(err);
       }
@@ -84,7 +75,7 @@ export function createAuthController(service: AuthService) {
 
     // ── MFA ──────────────────────────────────────────────────────────────────
 
-    /** Second-factor login: verify the code and issue the real session cookies. */
+    /** Second-factor login: verify the emailed code and issue the real session cookies. */
     async mfaChallenge(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
         const { mfaToken, code } = req.body as MfaChallengeDto;
@@ -96,47 +87,12 @@ export function createAuthController(service: AuthService) {
       }
     },
 
-    /** Begin enrollment: returns otpauth URI + QR + one-time recovery codes. */
-    async mfaSetup(req: Request, res: Response, next: NextFunction): Promise<void> {
+    /** Re-send the emailed code and return a fresh challenge token. */
+    async mfaResend(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        const data = await service.beginMfaSetup(req.mfaUserId!);
-        res.json(data);
-      } catch (err) {
-        next(err);
-      }
-    },
-
-    /** Complete enrollment. When reached via an enroll token, issue a session. */
-    async mfaVerifySetup(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const { code } = req.body as MfaVerifySetupDto;
-        const result = await service.completeMfaSetup(
-          req.mfaUserId!,
-          code,
-          buildAuditContext(req),
-          req.mfaEnrollMode === true,
-        );
-        if (result) {
-          setSessionCookies(res, result.tokens);
-          res.json({ user: result.user, enabled: true });
-          return;
-        }
-        res.json({ enabled: true });
-      } catch (err) {
-        next(err);
-      }
-    },
-
-    /** Disable MFA after a step-up check (current password or a TOTP code). */
-    async mfaDisable(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const { password, code } = req.body as MfaDisableDto;
-        await service.disableMfa(
-          req.currentUser!.userId,
-          { password, code },
-          buildAuditContext(req),
-        );
-        res.json({ disabled: true });
+        const { mfaToken } = req.body as MfaResendDto;
+        const result = await service.resendMfaCode(mfaToken, buildAuditContext(req));
+        res.json(result);
       } catch (err) {
         next(err);
       }

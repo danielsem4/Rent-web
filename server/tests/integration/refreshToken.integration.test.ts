@@ -1,24 +1,22 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import prisma from '../../src/lib/prisma';
-import { createApp } from '../../src/app';
-import type { AccountMailer } from '../../src/shared/notifications/mailer';
 import { hashToken } from '../../src/shared/utils/token';
 import { REFRESH_COOKIE_NAME } from '../../src/shared/utils/cookie';
-import { resetDatabase, seedTenants, loginAs, type SeededTenants } from './helpers/db';
+import {
+  resetDatabase,
+  seedTenants,
+  loginAs,
+  createTestApp,
+  testMailer,
+  type SeededTenants,
+} from './helpers/db';
 
-// Capturing mailer so the password-reset flow can be driven end-to-end (the raw
-// reset token is delivered only via the mailer — the DB stores just its hash).
-const delivered: Array<{ kind: 'invitation' | 'reset'; token: string }> = [];
-const captureMailer: AccountMailer = {
-  sendInvitation: async (_to, link) => { delivered.push({ kind: 'invitation', token: tokenOf(link) }); },
-  sendPasswordReset: async (_to, link) => { delivered.push({ kind: 'reset', token: tokenOf(link) }); },
-};
-function tokenOf(link: string): string {
-  return new URL(link).searchParams.get('token') ?? '';
-}
+// The raw reset token is delivered only via the mailer (the DB stores just its
+// hash), so the shared capturing mailer records it to drive the flow end-to-end.
+const delivered = testMailer.delivered;
 
-const app = createApp(undefined, { mailer: captureMailer });
+const app = createTestApp();
 const ORIGIN = process.env['CLIENT_URL'] || 'http://localhost:5173';
 
 let t: SeededTenants;

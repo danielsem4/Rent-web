@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { createAuthRouter } from './modules/auth/auth.routes';
 import { createUsersRouter } from './modules/users/users.routes';
+import { createPropertiesRouter } from './modules/properties/properties.routes';
 import { createAccountRouter } from './modules/account/account.routes';
 import { errorHandler } from './shared/middlewares/errorHandler';
 import { requestContext } from './shared/middlewares/requestContext';
@@ -19,8 +20,13 @@ import {
   createResetPasswordRateLimiter,
   createInvitationRateLimiter,
   createMfaVerifyRateLimiter,
+  createMfaResendRateLimiter,
 } from './shared/security/rateLimit';
-import { ConsoleAccountMailer, type AccountMailer } from './shared/notifications/mailer';
+import {
+  ConsoleAccountMailer,
+  SmtpAccountMailer,
+  type AccountMailer,
+} from './shared/notifications/mailer';
 import { loadConfig, type AppConfig } from './shared/config/env';
 
 /** Optional overrides for tests (e.g. a capturing mailer or audit logger). */
@@ -108,20 +114,22 @@ export function createApp(
     '/api/auth/invitation/accept',
     createInvitationRateLimiter(config.rateLimit.invitationActivation),
   );
-  // MFA second-factor endpoints (SECURITY_PRINCIPLES.md §15) — throttle code
-  // guessing on the challenge and enrollment-verify steps. Fresh limiter per
-  // createApp() (own in-memory store) like the others.
+  // Email-OTP 2FA endpoints (SECURITY_PRINCIPLES.md §15) — throttle code guessing
+  // on challenge (mfaVerify, failed-only) and email-bombing on resend (mfaResend,
+  // per-IP). Fresh limiter per createApp() (own in-memory store) like the others.
   app.use('/api/auth/mfa/challenge', createMfaVerifyRateLimiter(config.rateLimit.mfaVerify));
-  app.use('/api/auth/mfa/verify-setup', createMfaVerifyRateLimiter(config.rateLimit.mfaVerify));
+  app.use('/api/auth/mfa/resend', createMfaResendRateLimiter(config.rateLimit.mfaResend));
 
   // Health check route
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Account-mail delivery seam. Dev default logs the link (non-prod only); tests
-  // may inject a capturing mailer. Client URL reuses the single validated origin.
-  const mailer = overrides.mailer ?? new ConsoleAccountMailer();
+  // Mail delivery seam. Tests may inject a capturing mailer. Otherwise: SMTP when
+  // configured (nodemailer), else the console mailer (logs in dev, fails closed in
+  // prod). Delivers invitations/resets AND the email-OTP 2FA code.
+  const mailer =
+    overrides.mailer ?? (config.smtp ? new SmtpAccountMailer(config.smtp) : new ConsoleAccountMailer());
 
   // Audit logging seam (SECURITY_PRINCIPLES.md §18). Default persists to the
   // AuditLog table; tests may inject a capturing/no-op logger. Built once and
@@ -131,9 +139,10 @@ export function createApp(
 
   // Module routes. The account router mounts additional POST endpoints under
   // /api/auth (invitation/accept, forgot-password, reset-password).
-  app.use('/api/auth', createAuthRouter({ auditLogger }));
+  app.use('/api/auth', createAuthRouter({ auditLogger, mailer }));
   app.use('/api/auth', createAccountRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
   app.use('/api/users', createUsersRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
+  app.use('/api/properties', createPropertiesRouter({ auditLogger }));
 
   // Error handler (must be last)
   app.use(errorHandler);

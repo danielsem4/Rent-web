@@ -10,7 +10,7 @@ const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
 
 vi.mock('../src/lib/prisma', () => ({
   default: {
-    user: { findUnique },
+    user: { findUnique, update: vi.fn(async () => ({})) },
     auditLog: { create: vi.fn() },
     refreshToken: { create: vi.fn() },
   },

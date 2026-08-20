@@ -1,32 +1,21 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
-import { createApp } from '../../src/app';
-import type { AccountMailer } from '../../src/shared/notifications/mailer';
 import {
   resetDatabase,
   seedTenants,
   loginAs,
+  createTestApp,
+  testMailer,
   TEST_PASSWORD,
   type SeededTenants,
 } from './helpers/db';
 
-// Capturing mailer: the raw single-use token is only ever delivered via the
-// mailer (never stored — the DB holds just its hash), so the test captures the
-// link here to complete the flow end-to-end against the real database.
-const delivered: Array<{ kind: 'invitation' | 'reset'; to: string; token: string }> = [];
-const captureMailer: AccountMailer = {
-  sendInvitation: async (to, link) => {
-    delivered.push({ kind: 'invitation', to, token: tokenOf(link) });
-  },
-  sendPasswordReset: async (to, link) => {
-    delivered.push({ kind: 'reset', to, token: tokenOf(link) });
-  },
-};
-function tokenOf(link: string): string {
-  return new URL(link).searchParams.get('token') ?? '';
-}
+// The raw single-use token is only ever delivered via the mailer (never stored —
+// the DB holds just its hash), so the shared capturing mailer records it here to
+// complete the flow end-to-end against the real database.
+const delivered = testMailer.delivered;
 
-const app = createApp(undefined, { mailer: captureMailer });
+const app = createTestApp();
 // Authenticated mutations must carry the allowed Origin (CSRF runs before authorize).
 const ORIGIN = process.env['CLIENT_URL'] || 'http://localhost:5173';
 

@@ -35,11 +35,12 @@ export const JWT_ISSUER = 'rentplus';
 export const JWT_AUDIENCE = 'rentplus-app';
 
 /**
- * MFA challenge/enrollment token policy (SECURITY_PRINCIPLES.md §3/§24). A short-
- * lived, single-purpose token issued after the first factor (credentials) that
- * ONLY authorizes the MFA second step. It uses a DISTINCT audience so the primary
+ * MFA challenge token policy (SECURITY_PRINCIPLES.md §3/§24). A short-lived,
+ * single-purpose token issued after the first factor (credentials) that ONLY
+ * authorizes the email-OTP second step. It uses a DISTINCT audience so the primary
  * `authenticate` middleware (which pins `JWT_AUDIENCE`) can never accept it as an
- * access token, plus a `purpose` claim (`mfa_challenge` | `mfa_enroll`).
+ * access token, plus a `purpose` claim (`mfa_challenge`). Its lifetime must comfortably
+ * exceed the emailed code's validity so a user has time to fetch the code from email.
  */
-export const MFA_TOKEN_TTL = '5m';
+export const MFA_TOKEN_TTL = '10m';
 export const JWT_MFA_AUDIENCE = 'rentplus-mfa';

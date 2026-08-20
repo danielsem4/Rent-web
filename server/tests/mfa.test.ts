@@ -1,20 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
 import bcrypt from 'bcrypt';
-import { authenticator } from 'otplib';
 import { AuthService } from '../src/modules/auth/auth.service';
-import type { IAuthRepository, UserRecord, AuthState, SafeUser } from '../src/modules/auth/auth.repository';
+import type {
+  IAuthRepository,
+  UserRecord,
+  AuthState,
+  SafeUser,
+} from '../src/modules/auth/auth.repository';
 import type { IRefreshTokenRepository } from '../src/modules/auth/refreshToken.repository';
-import type { IMfaRepository, MfaContext } from '../src/modules/auth/mfa.repository';
+import type { IMfaRepository, EmailOtpState } from '../src/modules/auth/mfa.repository';
+import type { AccountMailer } from '../src/shared/notifications/mailer';
 import type { AuditEvent, IAuditLogger } from '../src/shared/audit/auditLogger';
 import { signMfaToken } from '../src/shared/utils/mfaToken';
-import { encryptSecret } from '../src/shared/utils/encryption';
-import { generateTotpSecret } from '../src/shared/utils/totp';
-import { hashRecoveryCode } from '../src/shared/utils/recoveryCodes';
+import { hashOtp, OTP_MAX_ATTEMPTS } from '../src/shared/utils/otp';
 import { Role } from '../src/shared/constants/roles';
 
 // ---------------------------------------------------------------------------
-// MFA logic as a pure AuthService unit (no HTTP/prisma). Real crypto/TOTP utils
-// are used so the flow is authentic; repositories are in-memory fakes.
+// Email-OTP 2FA as a pure AuthService unit (no HTTP/prisma). Real OTP/token utils
+// are used so the flow is authentic; repositories + mailer are in-memory fakes.
 // ---------------------------------------------------------------------------
 
 const CTX = { ip: '203.0.113.9', userAgent: 'vitest', requestId: 'req-mfa' };
@@ -45,35 +48,42 @@ const refreshRepo: IRefreshTokenRepository = {
   revokeByHash: vi.fn(async () => {}),
 };
 
-function makeMfaRepo(initial: Partial<MfaContext> = {}, passwordHash?: string) {
-  const s: MfaContext = {
-    isMfaEnabled: initial.isMfaEnabled ?? false,
-    mfaSecret: initial.mfaSecret ?? null,
-    recoveryCodeHashes: initial.recoveryCodeHashes ?? [],
+function makeMfaRepo(initial: Partial<EmailOtpState> = {}) {
+  const s: EmailOtpState = {
+    codeHash: initial.codeHash ?? null,
+    codeExpiresAt: initial.codeExpiresAt ?? null,
+    codeAttempts: initial.codeAttempts ?? 0,
   };
   const spies = {
-    getMfa: vi.fn(async () => ({ ...s })),
-    getPasswordHash: vi.fn(async () => passwordHash ?? null),
-    savePendingSecret: vi.fn(async (_id: number, enc: string, hashes: string[]) => {
-      s.mfaSecret = enc;
-      s.recoveryCodeHashes = hashes;
+    getEmailCode: vi.fn(async () => ({ ...s })),
+    saveEmailCode: vi.fn(async (_id: number, hash: string, exp: Date) => {
+      s.codeHash = hash;
+      s.codeExpiresAt = exp;
+      s.codeAttempts = 0;
     }),
-    enableMfa: vi.fn(async () => {
-      s.isMfaEnabled = true;
+    incrementAttempts: vi.fn(async () => {
+      s.codeAttempts += 1;
+      return s.codeAttempts;
     }),
-    disableMfa: vi.fn(async () => {
-      s.isMfaEnabled = false;
-      s.mfaSecret = null;
-      s.recoveryCodeHashes = [];
-    }),
-    consumeRecoveryCode: vi.fn(async (_id: number, hash: string) => {
-      const i = s.recoveryCodeHashes.indexOf(hash);
-      if (i < 0) return false;
-      s.recoveryCodeHashes.splice(i, 1);
-      return true;
+    clearEmailCode: vi.fn(async () => {
+      s.codeHash = null;
+      s.codeExpiresAt = null;
+      s.codeAttempts = 0;
     }),
   };
   return { repo: spies as IMfaRepository, spies, state: s };
+}
+
+function makeMailer() {
+  const sent: Array<{ to: string; code: string }> = [];
+  const mailer: AccountMailer = {
+    sendInvitation: vi.fn(async () => {}),
+    sendPasswordReset: vi.fn(async () => {}),
+    sendMfaCode: vi.fn(async (to: string, code: string) => {
+      sent.push({ to, code });
+    }),
+  };
+  return { mailer, sent };
 }
 
 function makeAudit() {
@@ -92,200 +102,210 @@ async function userRecord(over: Partial<UserRecord> = {}): Promise<UserRecord> {
     companyId: COMPANY_ID,
     isActive: true,
     tokenVersion: 0,
-    isMfaEnabled: false,
     ...over,
   };
 }
 
-describe('AuthService.login — MFA branching', () => {
-  it('privileged + not enrolled → enroll token (setupRequired), no session', async () => {
-    const record = await userRecord({ role: Role.COMPANY_MANAGER, isMfaEnabled: false });
+describe('AuthService.login — 2FA branching', () => {
+  it('privileged → emails a code, stores its hash, returns an mfa challenge (no session)', async () => {
+    const record = await userRecord({ role: Role.COMPANY_MANAGER });
     const mfa = makeMfaRepo();
-    const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ record }), refreshRepo, mfa.repo, audit);
+    const { mailer, sent } = makeMailer();
+    const { audit, events } = makeAudit();
+    const svc = new AuthService(makeAuthRepo({ record }), refreshRepo, mfa.repo, audit, mailer);
 
     const result = await svc.login({ email: 'm@test.dev', password: 'password123' }, CTX);
     expect(result.kind).toBe('mfa');
     if (result.kind !== 'mfa') throw new Error('expected mfa');
-    expect(result.setupRequired).toBe(true);
     expect(typeof result.mfaToken).toBe('string');
+    // A 6-digit code was emailed and its hash (not plaintext) persisted.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.code).toMatch(/^\d{6}$/);
+    expect(mfa.state.codeHash).toBe(hashOtp(sent[0]!.code));
+    expect(mfa.state.codeHash).not.toBe(sent[0]!.code);
+    expect(events.map((e) => e.action)).toContain('MFA_CHALLENGE_ISSUED');
   });
 
-  it('enrolled → challenge token (no setupRequired)', async () => {
-    const record = await userRecord({ role: Role.RENTER, isMfaEnabled: true });
-    const mfa = makeMfaRepo({ isMfaEnabled: true });
-    const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ record }), refreshRepo, mfa.repo, audit);
-
-    const result = await svc.login({ email: 'm@test.dev', password: 'password123' }, CTX);
-    expect(result.kind).toBe('mfa');
-    if (result.kind !== 'mfa') throw new Error('expected mfa');
-    expect(result.setupRequired).toBe(false);
-  });
-
-  it('non-privileged + MFA off → full session', async () => {
-    const record = await userRecord({ role: Role.RENTER, isMfaEnabled: false });
+  it('non-privileged → full session, no code emailed', async () => {
+    const record = await userRecord({ role: Role.RENTER });
     const mfa = makeMfaRepo();
+    const { mailer, sent } = makeMailer();
     const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ record }), refreshRepo, mfa.repo, audit);
+    const svc = new AuthService(makeAuthRepo({ record }), refreshRepo, mfa.repo, audit, mailer);
 
     const result = await svc.login({ email: 'm@test.dev', password: 'password123' }, CTX);
     expect(result.kind).toBe('session');
-  });
-});
-
-describe('AuthService.beginMfaSetup', () => {
-  it('generates a secret + recovery codes and stores them ENCRYPTED/HASHED (pending)', async () => {
-    const mfa = makeMfaRepo();
-    const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ user: safeUser() }), refreshRepo, mfa.repo, audit);
-
-    const data = await svc.beginMfaSetup(USER_ID);
-    expect(data.otpauthUrl.startsWith('otpauth://totp/')).toBe(true);
-    expect(data.qrDataUrl.startsWith('data:image/png;base64,')).toBe(true);
-    expect(data.recoveryCodes).toHaveLength(10);
-
-    // Pending, NOT enabled; secret stored is ciphertext; codes stored are hashes.
-    expect(mfa.state.isMfaEnabled).toBe(false);
-    expect(mfa.state.mfaSecret).not.toBeNull();
-    expect(mfa.state.mfaSecret).not.toContain(data.recoveryCodes[0]!);
-    expect(mfa.state.recoveryCodeHashes).toEqual(data.recoveryCodes.map(hashRecoveryCode));
-    expect(mfa.state.recoveryCodeHashes).not.toContain(data.recoveryCodes[0]);
-  });
-
-  it('rejects setup when MFA is already enabled (409)', async () => {
-    const mfa = makeMfaRepo({ isMfaEnabled: true });
-    const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ user: safeUser() }), refreshRepo, mfa.repo, audit);
-    await expect(svc.beginMfaSetup(USER_ID)).rejects.toMatchObject({ statusCode: 409 });
-  });
-});
-
-describe('AuthService.completeMfaSetup', () => {
-  it('enables MFA on a valid code and issues a session in enroll mode', async () => {
-    const secret = generateTotpSecret();
-    const mfa = makeMfaRepo({ mfaSecret: encryptSecret(secret) });
-    const { audit, events } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ state: authState(), user: safeUser() }), refreshRepo, mfa.repo, audit);
-
-    const result = await svc.completeMfaSetup(USER_ID, authenticator.generate(secret), CTX, true);
-    expect(mfa.spies.enableMfa).toHaveBeenCalledTimes(1);
-    expect(events.map((e) => e.action)).toContain('MFA_SETUP_COMPLETED');
-    expect(result?.kind).toBe('session');
-  });
-
-  it('does not issue a session outside enroll mode (voluntary enrollment)', async () => {
-    const secret = generateTotpSecret();
-    const mfa = makeMfaRepo({ mfaSecret: encryptSecret(secret) });
-    const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ state: authState(), user: safeUser() }), refreshRepo, mfa.repo, audit);
-
-    const result = await svc.completeMfaSetup(USER_ID, authenticator.generate(secret), CTX, false);
-    expect(result).toBeNull();
-    expect(mfa.spies.enableMfa).toHaveBeenCalledTimes(1);
-  });
-
-  it('rejects an invalid code (400) and does not enable', async () => {
-    const secret = generateTotpSecret();
-    const mfa = makeMfaRepo({ mfaSecret: encryptSecret(secret) });
-    const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ state: authState(), user: safeUser() }), refreshRepo, mfa.repo, audit);
-
-    await expect(svc.completeMfaSetup(USER_ID, '000000', CTX, true)).rejects.toMatchObject({ statusCode: 400 });
-    expect(mfa.spies.enableMfa).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
+    expect(mfa.spies.saveEmailCode).not.toHaveBeenCalled();
   });
 });
 
 describe('AuthService.completeMfaChallenge', () => {
-  const setup = (mfaState: Partial<MfaContext>) => {
-    const mfa = makeMfaRepo({ isMfaEnabled: true, ...mfaState });
+  it('accepts the emailed code → session + MFA_LOGIN_SUCCESS, and consumes the code', async () => {
+    const record = await userRecord();
+    const mfa = makeMfaRepo();
+    const { mailer, sent } = makeMailer();
     const { audit, events } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ state: authState(), user: safeUser() }), refreshRepo, mfa.repo, audit);
-    return { mfa, audit, events, svc };
-  };
+    const svc = new AuthService(
+      makeAuthRepo({ record, state: authState(), user: safeUser() }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
 
-  it('accepts a valid TOTP code → session + MFA_LOGIN_SUCCESS', async () => {
-    const secret = generateTotpSecret();
-    const { svc, events } = setup({ mfaSecret: encryptSecret(secret) });
-    const token = signMfaToken(USER_ID, 'mfa_challenge');
+    const login = await svc.login({ email: 'm@test.dev', password: 'password123' }, CTX);
+    if (login.kind !== 'mfa') throw new Error('expected mfa');
+    const code = sent[0]!.code;
 
-    const result = await svc.completeMfaChallenge(token, authenticator.generate(secret), CTX);
+    const result = await svc.completeMfaChallenge(login.mfaToken, code, CTX);
     expect(result.kind).toBe('session');
     expect(events.map((e) => e.action)).toContain('MFA_LOGIN_SUCCESS');
+    expect(mfa.spies.clearEmailCode).toHaveBeenCalled();
+    expect(mfa.state.codeHash).toBeNull(); // consumed
   });
 
-  it('accepts a single-use recovery code → session + MFA_RECOVERY_CODE_USED (consumed)', async () => {
-    const secret = generateTotpSecret();
-    const code = 'ABCDE-12345';
-    const { svc, mfa, events } = setup({
-      mfaSecret: encryptSecret(secret),
-      recoveryCodeHashes: [hashRecoveryCode(code)],
-    });
-    const token = signMfaToken(USER_ID, 'mfa_challenge');
-
-    const result = await svc.completeMfaChallenge(token, code, CTX);
-    expect(result.kind).toBe('session');
-    expect(mfa.spies.consumeRecoveryCode).toHaveBeenCalledWith(USER_ID, hashRecoveryCode(code));
-    expect(mfa.state.recoveryCodeHashes).toHaveLength(0); // consumed
-    expect(events.map((e) => e.action)).toContain('MFA_RECOVERY_CODE_USED');
-  });
-
-  it('rejects an invalid code (401) + MFA_LOGIN_FAILED', async () => {
-    const secret = generateTotpSecret();
-    const { svc, events } = setup({ mfaSecret: encryptSecret(secret) });
+  it('rejects a wrong code (401) + MFA_LOGIN_FAILED, and increments attempts', async () => {
+    const mfa = makeMfaRepo({ codeHash: hashOtp('123456'), codeExpiresAt: new Date(Date.now() + 60_000) });
+    const { mailer } = makeMailer();
+    const { audit, events } = makeAudit();
+    const svc = new AuthService(
+      makeAuthRepo({ state: authState(), user: safeUser() }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
     const token = signMfaToken(USER_ID, 'mfa_challenge');
 
     await expect(svc.completeMfaChallenge(token, '000000', CTX)).rejects.toMatchObject({ statusCode: 401 });
+    expect(mfa.spies.incrementAttempts).toHaveBeenCalledTimes(1);
     expect(events.map((e) => e.action)).toContain('MFA_LOGIN_FAILED');
   });
 
-  it('rejects a wrong-purpose token (enroll token cannot complete a challenge)', async () => {
-    const secret = generateTotpSecret();
-    const { svc } = setup({ mfaSecret: encryptSecret(secret) });
-    const enrollToken = signMfaToken(USER_ID, 'mfa_enroll');
+  it('rejects an expired code (401) and clears it', async () => {
+    const mfa = makeMfaRepo({ codeHash: hashOtp('123456'), codeExpiresAt: new Date(Date.now() - 1_000) });
+    const { mailer } = makeMailer();
+    const { audit } = makeAudit();
+    const svc = new AuthService(
+      makeAuthRepo({ state: authState(), user: safeUser() }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
+    const token = signMfaToken(USER_ID, 'mfa_challenge');
 
-    await expect(
-      svc.completeMfaChallenge(enrollToken, authenticator.generate(secret), CTX),
-    ).rejects.toMatchObject({ statusCode: 401 });
+    await expect(svc.completeMfaChallenge(token, '123456', CTX)).rejects.toMatchObject({ statusCode: 401 });
+    expect(mfa.spies.clearEmailCode).toHaveBeenCalled();
+  });
+
+  it('locks out after too many attempts — even a correct code is refused', async () => {
+    const mfa = makeMfaRepo({
+      codeHash: hashOtp('123456'),
+      codeExpiresAt: new Date(Date.now() + 60_000),
+      codeAttempts: OTP_MAX_ATTEMPTS,
+    });
+    const { mailer } = makeMailer();
+    const { audit } = makeAudit();
+    const svc = new AuthService(
+      makeAuthRepo({ state: authState(), user: safeUser() }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
+    const token = signMfaToken(USER_ID, 'mfa_challenge');
+
+    await expect(svc.completeMfaChallenge(token, '123456', CTX)).rejects.toMatchObject({ statusCode: 401 });
+    expect(mfa.spies.clearEmailCode).toHaveBeenCalled();
+  });
+
+  it('rejects when there is no active code (401)', async () => {
+    const mfa = makeMfaRepo(); // no code stored
+    const { mailer } = makeMailer();
+    const { audit } = makeAudit();
+    const svc = new AuthService(
+      makeAuthRepo({ state: authState(), user: safeUser() }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
+    const token = signMfaToken(USER_ID, 'mfa_challenge');
+
+    await expect(svc.completeMfaChallenge(token, '123456', CTX)).rejects.toMatchObject({ statusCode: 401 });
+  });
+
+  it('rejects a token signed for the wrong audience/secret', async () => {
+    const mfa = makeMfaRepo({ codeHash: hashOtp('123456'), codeExpiresAt: new Date(Date.now() + 60_000) });
+    const { mailer } = makeMailer();
+    const { audit } = makeAudit();
+    const svc = new AuthService(
+      makeAuthRepo({ state: authState(), user: safeUser() }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
+
+    await expect(svc.completeMfaChallenge('not-a-valid-token', '123456', CTX)).rejects.toMatchObject({
+      statusCode: 401,
+    });
   });
 });
 
-describe('AuthService.disableMfa', () => {
-  it('disables with a correct password (step-up) + MFA_DISABLED', async () => {
-    const passwordHash = await bcrypt.hash('password123', 10);
-    const mfa = makeMfaRepo({ isMfaEnabled: true, mfaSecret: encryptSecret(generateTotpSecret()) }, passwordHash);
+describe('AuthService.resendMfaCode', () => {
+  it('re-issues a fresh code + new token for an active privileged user', async () => {
+    const mfa = makeMfaRepo({ codeHash: hashOtp('111111'), codeExpiresAt: new Date(Date.now() + 60_000) });
+    const { mailer, sent } = makeMailer();
     const { audit, events } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({}), refreshRepo, mfa.repo, audit);
+    const svc = new AuthService(
+      makeAuthRepo({ state: authState(), user: safeUser() }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
+    const token = signMfaToken(USER_ID, 'mfa_challenge');
 
-    await svc.disableMfa(USER_ID, { password: 'password123' }, CTX);
-    expect(mfa.spies.disableMfa).toHaveBeenCalledTimes(1);
-    expect(events.map((e) => e.action)).toContain('MFA_DISABLED');
+    const result = await svc.resendMfaCode(token, CTX);
+    expect(typeof result.mfaToken).toBe('string');
+    expect(sent).toHaveLength(1);
+    expect(mfa.state.codeHash).toBe(hashOtp(sent[0]!.code));
+    expect(events.map((e) => e.action)).toContain('MFA_CHALLENGE_ISSUED');
   });
 
-  it('disables with a correct TOTP code (step-up)', async () => {
-    const secret = generateTotpSecret();
-    const mfa = makeMfaRepo({ isMfaEnabled: true, mfaSecret: encryptSecret(secret) });
+  it('rejects resend for an inactive user (401)', async () => {
+    const mfa = makeMfaRepo();
+    const { mailer, sent } = makeMailer();
     const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({}), refreshRepo, mfa.repo, audit);
+    const svc = new AuthService(
+      makeAuthRepo({ state: authState({ isActive: false }), user: safeUser() }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
+    const token = signMfaToken(USER_ID, 'mfa_challenge');
 
-    await svc.disableMfa(USER_ID, { code: authenticator.generate(secret) }, CTX);
-    expect(mfa.spies.disableMfa).toHaveBeenCalledTimes(1);
+    await expect(svc.resendMfaCode(token, CTX)).rejects.toMatchObject({ statusCode: 401 });
+    expect(sent).toHaveLength(0);
   });
 
-  it('rejects a wrong password/code (401) and does not disable', async () => {
-    const passwordHash = await bcrypt.hash('password123', 10);
-    const mfa = makeMfaRepo({ isMfaEnabled: true, mfaSecret: encryptSecret(generateTotpSecret()) }, passwordHash);
+  it('rejects resend for a non-privileged user (401)', async () => {
+    const mfa = makeMfaRepo();
+    const { mailer } = makeMailer();
     const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({}), refreshRepo, mfa.repo, audit);
+    const svc = new AuthService(
+      makeAuthRepo({ state: authState({ role: Role.RENTER }), user: safeUser({ role: Role.RENTER }) }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
+    const token = signMfaToken(USER_ID, 'mfa_challenge');
 
-    await expect(svc.disableMfa(USER_ID, { password: 'wrong' }, CTX)).rejects.toMatchObject({ statusCode: 401 });
-    expect(mfa.spies.disableMfa).not.toHaveBeenCalled();
-  });
-
-  it('rejects disabling when MFA is not enabled (400)', async () => {
-    const mfa = makeMfaRepo({ isMfaEnabled: false });
-    const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({}), refreshRepo, mfa.repo, audit);
-    await expect(svc.disableMfa(USER_ID, { password: 'x' }, CTX)).rejects.toMatchObject({ statusCode: 400 });
+    await expect(svc.resendMfaCode(token, CTX)).rejects.toMatchObject({ statusCode: 401 });
   });
 });

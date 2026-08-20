@@ -22,7 +22,8 @@ vi.mock('../src/lib/prisma', () => ({
   // refresh cookie touches no refresh rows. Detailed rotation/reuse behavior is
   // exercised in refreshToken.test.ts (service unit) + the integration suite.
   default: {
-    user: { findUnique },
+    // `update` backs the email-OTP save/clear on the privileged login path.
+    user: { findUnique, update: vi.fn(async () => ({})) },
     auditLog: { create: vi.fn() },
     refreshToken: { create: vi.fn() },
   },
@@ -107,32 +108,31 @@ describe('POST /api/auth/login', () => {
     expect(JSON.stringify(res.body)).not.toContain('passwordHash');
   });
 
-  // Mandatory MFA (SECURITY §3/§24): a privileged, NOT-yet-enrolled user is hard-
-  // gated — no session, an enroll token instead.
-  it('a privileged user without MFA is hard-gated into enrollment (no session)', async () => {
-    users = [await makeUserRow({ id: 1, role: Role.COMPANY_MANAGER, isMfaEnabled: false })];
+  // Mandatory 2FA (SECURITY §3/§24): a privileged user gets an emailed-code
+  // challenge — no session yet, just an mfaToken.
+  it('a privileged (COMPANY_MANAGER) user gets an emailed-code challenge (no session)', async () => {
+    users = [await makeUserRow({ id: 1, role: Role.COMPANY_MANAGER })];
     const res = await request(app)
       .post('/api/auth/login')
       .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
 
     expect(res.status).toBe(200);
     expect(res.body.mfaRequired).toBe(true);
-    expect(res.body.mfaSetupRequired).toBe(true);
     expect(typeof res.body.mfaToken).toBe('string');
+    expect(res.body.mfaSetupRequired).toBeUndefined(); // no enrollment step anymore
     expect(res.body.user).toBeUndefined();
     expect(res.headers['set-cookie']).toBeUndefined(); // no session cookies yet
   });
 
-  // An MFA-enrolled user gets a challenge token (verify existing TOTP), no setup flag.
-  it('an MFA-enrolled user gets a challenge token (no session yet)', async () => {
-    users = [await makeUserRow({ id: 1, role: Role.RENTER, isMfaEnabled: true })];
+  // SUPER_ADMIN is likewise privileged and takes the two-phase (email-code) path.
+  it('a privileged (SUPER_ADMIN) user also gets an emailed-code challenge', async () => {
+    users = [await makeUserRow({ id: 1, email: 'super@test.dev', role: Role.SUPER_ADMIN })];
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
+      .send({ email: 'super@test.dev', password: DEFAULT_PASSWORD });
 
     expect(res.status).toBe(200);
     expect(res.body.mfaRequired).toBe(true);
-    expect(res.body.mfaSetupRequired).toBeUndefined();
     expect(typeof res.body.mfaToken).toBe('string');
     expect(res.headers['set-cookie']).toBeUndefined();
   });

@@ -1,22 +1,14 @@
-import { Navigate, Outlet, useNavigate } from "react-router-dom";
+import { Navigate, Outlet } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useInitAuth } from "@/hooks/common/useInitAuth";
-import { useAuthStore } from "@/store/useAuthStore";
-import { authApi } from "@/api/authApi";
+import { useLogout } from "@/hooks/common/useLogout";
 import { Button } from "@/components/ui/button";
 import ThemeToggle from "@/common/components/ThemeToggle";
 
 export default function ProtectedLayout() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { isLoading, isAuthenticated } = useInitAuth();
-  const logout = useAuthStore((s) => s.logout);
-
-  const handleLogout = async () => {
-    await authApi.logout().catch(() => undefined);
-    logout();
-    void navigate("/login");
-  };
+  const logout = useLogout();
 
   if (isLoading) {
     return (
@@ -39,13 +31,16 @@ export default function ProtectedLayout() {
           <a href="/" className="rounded-md px-3 py-2 hover:bg-sidebar-accent">
             {t("home.title")}
           </a>
+          <a href="/properties" className="rounded-md px-3 py-2 hover:bg-sidebar-accent">
+            {t("properties.title")}
+          </a>
         </nav>
       </aside>
 
       <div className="flex flex-1 flex-col">
         <header className="flex h-14 items-center justify-end gap-2 border-b px-6">
           <ThemeToggle />
-          <Button variant="outline" size="sm" onClick={handleLogout}>
+          <Button variant="outline" size="sm" onClick={logout}>
             {t("common.logout")}
           </Button>
         </header>

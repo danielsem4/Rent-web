@@ -21,9 +21,9 @@ export interface UserRow {
   companyId: number;
   isActive: boolean;
   tokenVersion: number;
-  isMfaEnabled: boolean;
-  mfaSecret: string | null;
-  mfaRecoveryCodes: string[];
+  mfaCodeHash: string | null;
+  mfaCodeExpiresAt: Date | null;
+  mfaCodeAttempts: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,10 +47,10 @@ export async function makeUserRow(
     companyId: 1,
     isActive: true,
     tokenVersion: 0,
-    // MFA off by default; override per test to exercise the two-phase flow.
-    isMfaEnabled: false,
-    mfaSecret: null,
-    mfaRecoveryCodes: [],
+    // No pending email-OTP by default; override per test to exercise the 2FA flow.
+    mfaCodeHash: null,
+    mfaCodeExpiresAt: null,
+    mfaCodeAttempts: 0,
     // Fixed timestamps keep rows deterministic (no Date.now in assertions).
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),

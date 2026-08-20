@@ -31,7 +31,11 @@ api.interceptors.response.use(
     const isAuthEndpoint =
       url.includes("/auth/login") ||
       url.includes("/auth/refresh") ||
-      url.includes("/auth/logout");
+      url.includes("/auth/logout") ||
+      // MFA endpoints run before a session exists; a 401 there means "bad code",
+      // not "expired session". Skip the refresh-retry so the error surfaces to
+      // the MFA screen instead of logging the user out and redirecting.
+      url.includes("/auth/mfa/");
 
     if (status !== 401 || isAuthEndpoint || originalRequest._retry) {
       return Promise.reject(error);

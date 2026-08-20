@@ -1,15 +1,9 @@
 import { Router } from 'express';
 import { validateRequest } from '../../shared/middlewares/validateRequest';
 import { authenticate } from '../../shared/middlewares/authenticate';
-import { authenticateOrEnrollToken } from '../../shared/middlewares/mfaEnroll';
 import type { IAuditLogger } from '../../shared/audit/auditLogger';
-import {
-  loginSchema,
-  mfaChallengeSchema,
-  mfaSetupSchema,
-  mfaVerifySetupSchema,
-  mfaDisableSchema,
-} from './auth.schema';
+import type { AccountMailer } from '../../shared/notifications/mailer';
+import { loginSchema, mfaChallengeSchema, mfaResendSchema } from './auth.schema';
 import { AuthRepository } from './auth.repository';
 import { RefreshTokenRepository } from './refreshToken.repository';
 import { MfaRepository } from './mfa.repository';
@@ -18,6 +12,7 @@ import { createAuthController } from './auth.controller';
 
 export interface AuthRouterDeps {
   auditLogger: IAuditLogger;
+  mailer: AccountMailer;
 }
 
 /**
@@ -35,6 +30,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
     refreshTokenRepository,
     mfaRepository,
     deps.auditLogger,
+    deps.mailer,
   );
   const controller = createAuthController(service);
 
@@ -47,23 +43,11 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
   router.post('/refresh', controller.refresh);
   router.post('/logout', controller.logout);
 
-  // ── MFA (SECURITY_PRINCIPLES.md §3/§24) ──
-  // challenge: public second-factor step (the mfaToken is the bearer credential);
-  // rate-limited in app.ts. setup/verify-setup: session OR enroll token (hard-gated
-  // enrollment). disable: authenticated + step-up (password or TOTP) in the service.
+  // ── Email OTP 2FA (SECURITY_PRINCIPLES.md §3/§24) ──
+  // Both steps are public: the short-lived `mfaToken` (issued by login) is the
+  // bearer credential. challenge verifies the emailed code; resend re-sends it.
+  // Both are rate-limited in app.ts (mfaVerify / mfaResend).
   router.post('/mfa/challenge', validateRequest(mfaChallengeSchema), controller.mfaChallenge);
-  router.post(
-    '/mfa/setup',
-    validateRequest(mfaSetupSchema),
-    authenticateOrEnrollToken,
-    controller.mfaSetup,
-  );
-  router.post(
-    '/mfa/verify-setup',
-    validateRequest(mfaVerifySetupSchema),
-    authenticateOrEnrollToken,
-    controller.mfaVerifySetup,
-  );
-  router.post('/mfa/disable', authenticate, validateRequest(mfaDisableSchema), controller.mfaDisable);
+  router.post('/mfa/resend', validateRequest(mfaResendSchema), controller.mfaResend);
   return router;
 }

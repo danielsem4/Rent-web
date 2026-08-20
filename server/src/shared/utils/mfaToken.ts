@@ -1,12 +1,10 @@
 /**
  * Short-lived, single-purpose MFA tokens (SECURITY_PRINCIPLES.md §3/§24).
  *
- * Issued after the first factor (credentials) to authorize ONLY the MFA second
- * step (challenge or enrollment). They use a DISTINCT audience (`JWT_MFA_AUDIENCE`)
- * so the primary `authenticate` middleware — which pins `JWT_AUDIENCE` — can never
- * accept one as an access token, plus an explicit `purpose` claim verified here.
- * Shared by `AuthService` and the enrollment guard so signing/verification cannot
- * drift apart.
+ * Issued after the first factor (credentials) to authorize ONLY the email-OTP
+ * second step (challenge). They use a DISTINCT audience (`JWT_MFA_AUDIENCE`) so the
+ * primary `authenticate` middleware — which pins `JWT_AUDIENCE` — can never accept
+ * one as an access token, plus an explicit `purpose` claim verified here.
  */
 
 import jwt from 'jsonwebtoken';
@@ -18,7 +16,7 @@ import {
   JWT_MFA_AUDIENCE,
 } from '../config/jwt';
 
-export type MfaPurpose = 'mfa_challenge' | 'mfa_enroll';
+export type MfaPurpose = 'mfa_challenge';
 
 function secret(): string {
   const value = process.env['JWT_SECRET'];
