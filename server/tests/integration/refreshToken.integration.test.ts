@@ -5,7 +5,7 @@ import { createApp } from '../../src/app';
 import type { AccountMailer } from '../../src/shared/notifications/mailer';
 import { hashToken } from '../../src/shared/utils/token';
 import { REFRESH_COOKIE_NAME } from '../../src/shared/utils/cookie';
-import { resetDatabase, seedTenants, TEST_PASSWORD, type SeededTenants } from './helpers/db';
+import { resetDatabase, seedTenants, loginAs, type SeededTenants } from './helpers/db';
 
 // Capturing mailer so the password-reset flow can be driven end-to-end (the raw
 // reset token is delivered only via the mailer — the DB stores just its hash).
@@ -29,11 +29,14 @@ beforeEach(async () => {
   delivered.length = 0;
 });
 
-/** Log in and return the raw Set-Cookie array (access `token` + `refreshToken`). */
+/**
+ * Log in and return the session Set-Cookie array (access `token` + `refreshToken`).
+ * Delegates to the shared helper, which completes mandatory MFA for privileged
+ * users (managerA is a COMPANY_MANAGER).
+ */
 async function login(email: string): Promise<string[]> {
-  const res = await request(app).post('/api/auth/login').send({ email, password: TEST_PASSWORD });
-  expect(res.status).toBe(200);
-  return res.headers['set-cookie'] as unknown as string[];
+  const { cookie } = await loginAs(app, email);
+  return cookie;
 }
 
 function pick(cookies: string[], name: string): string | undefined {

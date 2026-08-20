@@ -68,7 +68,7 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 | Rate limiting / brute-force protection | ✅ | **Batch 2** — `express-rate-limit` behind `shared/security/rateLimit.ts`; login (IP + email+IP failed + **per-email/account failed, IP-independent**) & refresh mounted `app.ts`; values `config/rateLimit.ts`. Account-level layer catches distributed attacks; threshold well above email+IP to bound account-DoS. Shared prod store + `trust proxy` still 🔍 |
 | CSRF explicit design (Origin/Referer check) | ✅ | **Batch 2** — server-side Origin/Referer validation on authenticated mutations, fail-closed `shared/middlewares/csrf.ts`; layered with SameSite. CORS is not relied on |
 | Startup config validation / fail-fast on weak secret | ✅ | **Batch 1** — `config/env.ts` `loadConfig` + `index.ts` fail-fast |
-| MFA (privileged roles) | ❌ | none anywhere — **P1** |
+| MFA (privileged roles) | ✅ | **Batch 6** — mandatory TOTP for `SUPER_ADMIN`/`COMPANY_MANAGER`; two-phase login (credentials → 5m challenge/enroll token → verify → session); secret AES-256-GCM encrypted at rest, recovery codes SHA-256 hashed single-use `modules/auth/mfa.repository.ts`, `auth.service.ts`, `shared/utils/{totp,encryption,recoveryCodes,mfaToken}.ts`; tests `tests/mfa.test.ts`, `tests/integration/mfa.integration.test.ts` |
 | Audit logging (security events) | ✅ | **Batch 4** — durable `AuditLog` table + resilient `AuditService` (`shared/audit/*`); events wired for login success/failure, user create, invitation sent/accepted, password reset requested/completed, role change; metadata sanitized (never passwords/tokens/tokenHash/cookies); tests `tests/audit.test.ts`, `tests/integration/audit.integration.test.ts` |
 | Structured operational logging | ✅ | **Batch 4** — dependency-free structured JSON logger (`shared/logging/logger.ts`, pretty dev / compact JSON prod, redaction), request correlation id (`requestContext.ts`) + HTTP lifecycle log (`requestLogger.ts`); all `console.*` replaced; tests `tests/logger.test.ts` |
 | Invitation/set-password, forgot, reset flows | ✅ | **Batch 3** — random single-use time-limited tokens (SHA-256 hashed at rest), enumeration-safe forgot-password, `tokenVersion` bump on every password change; plaintext provisioning removed `modules/account/*`, `users.service.ts`; tests `tests/account.test.ts`, `tests/integration/account.integration.test.ts` |
@@ -162,7 +162,25 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 > rotation, reuse, expiry, disabled, single-use race, login issuance, logout) +
 > `tests/integration/refreshToken.integration.test.ts` (real DB: rotation, full-family kill on reuse,
 > expired, disabled, password-reset revocation); `npm run build` clean; full fast (127) + integration
-> (38) suites green. **Remaining P1:** MFA (item 5).
+> (38) suites green.
+>
+> **Remediation Batch 6 (2026-08-20) — DONE:** mandatory TOTP MFA for privileged roles (P1 item 5 —
+> the LAST P1). New `otplib`/`qrcode` deps; `User` gains `isMfaEnabled` + AES-256-GCM-encrypted
+> `mfaSecret` + SHA-256-hashed single-use `mfaRecoveryCodes String[]` (migration
+> `20260819224557_add_user_totp_mfa`). Login is now two-phase: after credential + `isActive` checks a
+> privileged (`SUPER_ADMIN`/`COMPANY_MANAGER`) or MFA-enabled user gets NO session — instead a 5-min,
+> single-purpose, DISTINCT-audience (`rentplus-mfa`) `mfa_challenge`/`mfa_enroll` token. Endpoints under
+> `/api/auth/mfa`: `challenge` (verify TOTP or single-use recovery code → session), `setup` +
+> `verify-setup` (authorized by a session OR an enroll token — hard-gated enrollment issues a session
+> on completion), `disable` (authenticated + step-up password/TOTP). Secret encrypted at rest via a new
+> fail-fast `MFA_ENCRYPTION_KEY`; MFA tokens can't be used as access tokens (audience pin);
+> `challenge`/`verify-setup` rate-limited (`mfaVerify`, now wired into config + `app.ts`); events audited
+> (`MFA_CHALLENGE_ISSUED`/`MFA_LOGIN_SUCCESS`/`MFA_LOGIN_FAILED`/`MFA_SETUP_COMPLETED`/`MFA_DISABLED`/
+> `MFA_RECOVERY_CODE_USED`). Server-only (client MFA UI is a follow-up). Test helpers centralized the
+> change: seeded privileged users are pre-enrolled with a fixed secret and `loginAs` completes the
+> challenge. Verified by `tests/{mfa,totp,encryption}.test.ts` (fast) + `tests/integration/mfa.integration.test.ts`;
+> `npm run build` clean; full fast (156) + integration (45) suites green. **All P1 items are now closed**
+> (remaining work is P2 defense-in-depth + deployment-dependent Needs-Verification items).
 
 ### P0 — immediate code defect
 - ~~**500 error handler leaks internals.**~~ **FIXED (Batch 1)** — unexpected errors now return
@@ -191,7 +209,13 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
    cross-site.
 4. ~~**Startup config validation / fail-fast**~~ **DONE (Batch 1)** — `config/env.ts` `loadConfig`
    rejects missing/placeholder/weak secrets in production; `index.ts` exits non-zero at boot.
-5. **MFA** for `SUPER_ADMIN` and `COMPANY_MANAGER` (owner decision, 2026-08-19).
+5. ~~**MFA** for `SUPER_ADMIN` and `COMPANY_MANAGER`.~~ **DONE (Batch 6)** — mandatory TOTP with a
+   two-phase login (credentials → short-lived, distinct-audience `mfa_challenge`/`mfa_enroll` token →
+   `/api/auth/mfa/challenge` or `/setup`+`/verify-setup` → session). Privileged users are hard-gated:
+   no session until enrolled + verified. Secret AES-256-GCM encrypted (`MFA_ENCRYPTION_KEY`, fail-fast
+   in prod); recovery codes SHA-256 hashed + single-use; `/mfa/challenge`+`/verify-setup` rate-limited
+   (`mfaVerify`); every MFA event audited. `modules/auth/mfa.repository.ts`, `auth.service.ts`,
+   `shared/utils/{totp,encryption,recoveryCodes,mfaToken}.ts`.
 6. ~~**Account lifecycle** — invitation/set-password, forgot, reset~~ **DONE (Batch 3)** — new
    `modules/account` mounts `POST /api/auth/{invitation/accept,forgot-password,reset-password}`.
    Tokens are `crypto.randomBytes(32)` hex, stored only as a SHA-256 hash (`AccountToken`,

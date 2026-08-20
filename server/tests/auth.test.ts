@@ -86,21 +86,17 @@ describe('GET /api/health', () => {
 });
 
 describe('POST /api/auth/login', () => {
-  // Case 1
-  it('valid credentials return 200 with the safe user payload and set the token cookie', async () => {
+  // Case 1 — a NON-privileged, MFA-off user logs in one-step (session issued).
+  // Privileged roles are MFA-mandatory and take the two-phase path (see below).
+  it('valid credentials for a non-privileged MFA-off user return 200 + session cookies', async () => {
+    users = [await makeUserRow({ id: 2, email: 'renter@test.dev', role: Role.RENTER, companyId: 1 })];
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
+      .send({ email: 'renter@test.dev', password: DEFAULT_PASSWORD });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      user: {
-        id: 1,
-        email: 'manager@test.dev',
-        name: 'Test Manager',
-        role: 'COMPANY_MANAGER',
-        companyId: 1,
-      },
+      user: { id: 2, email: 'renter@test.dev', name: 'Test Manager', role: 'RENTER', companyId: 1 },
     });
 
     const setCookie = res.headers['set-cookie'] as unknown as string[];
@@ -109,6 +105,36 @@ describe('POST /api/auth/login', () => {
     // Case 10 (login): passwordHash must never appear in the response.
     expect(res.body.user).not.toHaveProperty('passwordHash');
     expect(JSON.stringify(res.body)).not.toContain('passwordHash');
+  });
+
+  // Mandatory MFA (SECURITY §3/§24): a privileged, NOT-yet-enrolled user is hard-
+  // gated — no session, an enroll token instead.
+  it('a privileged user without MFA is hard-gated into enrollment (no session)', async () => {
+    users = [await makeUserRow({ id: 1, role: Role.COMPANY_MANAGER, isMfaEnabled: false })];
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
+
+    expect(res.status).toBe(200);
+    expect(res.body.mfaRequired).toBe(true);
+    expect(res.body.mfaSetupRequired).toBe(true);
+    expect(typeof res.body.mfaToken).toBe('string');
+    expect(res.body.user).toBeUndefined();
+    expect(res.headers['set-cookie']).toBeUndefined(); // no session cookies yet
+  });
+
+  // An MFA-enrolled user gets a challenge token (verify existing TOTP), no setup flag.
+  it('an MFA-enrolled user gets a challenge token (no session yet)', async () => {
+    users = [await makeUserRow({ id: 1, role: Role.RENTER, isMfaEnabled: true })];
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
+
+    expect(res.status).toBe(200);
+    expect(res.body.mfaRequired).toBe(true);
+    expect(res.body.mfaSetupRequired).toBeUndefined();
+    expect(typeof res.body.mfaToken).toBe('string');
+    expect(res.headers['set-cookie']).toBeUndefined();
   });
 
   // Case 2
@@ -239,7 +265,8 @@ describe('Role taxonomy', () => {
   // others prove each role is represented safely by the auth types + payload.
   // (Role-typed fixtures give the compile-time "represented safely" guarantee.)
   for (const role of ROLE_VALUES) {
-    it(`a ${role} user authenticates and the response preserves the role`, async () => {
+    const privileged = role === Role.SUPER_ADMIN || role === Role.COMPANY_MANAGER;
+    it(`a ${role} user authenticates (${privileged ? 'MFA-gated' : 'session'})`, async () => {
       const email = `${role.toLowerCase()}@test.dev`;
       users = [await makeUserRow({ id: 1, email, role })];
 
@@ -248,8 +275,14 @@ describe('Role taxonomy', () => {
         .send({ email, password: DEFAULT_PASSWORD });
 
       expect(res.status).toBe(200);
-      expect(res.body.user.role).toBe(role);
-      expect(res.body.user).not.toHaveProperty('passwordHash');
+      if (privileged) {
+        // Mandatory MFA: no session, credentials-valid → second factor required.
+        expect(res.body.mfaRequired).toBe(true);
+        expect(res.body.user).toBeUndefined();
+      } else {
+        expect(res.body.user.role).toBe(role);
+        expect(res.body.user).not.toHaveProperty('passwordHash');
+      }
     });
   }
 });
@@ -259,9 +292,10 @@ describe('Role taxonomy', () => {
 // ===========================================================================
 
 describe('Login — company context', () => {
-  // Case 1: the safe user carries the current DB companyId.
+  // Case 1: the safe user carries the current DB companyId. Uses a non-privileged
+  // (session-issuing) user so the login response includes the user payload.
   it('includes the correct companyId from the DB row', async () => {
-    users = [await makeUserRow({ id: 1, email: 'manager@test.dev', companyId: 7 })];
+    users = [await makeUserRow({ id: 1, email: 'manager@test.dev', role: Role.RENTER, companyId: 7 })];
 
     const res = await request(app)
       .post('/api/auth/login')
@@ -285,6 +319,7 @@ describe('Login — company context', () => {
 
   // Case 3: passwordHash is never exposed (also covered above; kept explicit).
   it('never exposes passwordHash', async () => {
+    users = [await makeUserRow({ id: 1, email: 'manager@test.dev', role: Role.RENTER })];
     const res = await request(app)
       .post('/api/auth/login')
       .send({ email: 'manager@test.dev', password: DEFAULT_PASSWORD });
@@ -294,9 +329,10 @@ describe('Login — company context', () => {
     expect(JSON.stringify(res.body)).not.toContain('passwordHash');
   });
 
-  // The issued token embeds the current companyId snapshot claim.
+  // The issued token embeds the current companyId snapshot claim (non-privileged
+  // user so a session token is minted directly).
   it('issues a token whose companyId snapshot matches the DB row', async () => {
-    users = [await makeUserRow({ id: 1, companyId: 7, role: Role.COMPANY_MANAGER })];
+    users = [await makeUserRow({ id: 1, companyId: 7, role: Role.RENTER })];
 
     const res = await request(app)
       .post('/api/auth/login')
@@ -304,7 +340,7 @@ describe('Login — company context', () => {
 
     const decoded = tokenFromSetCookie(res.headers['set-cookie'] as unknown as string[]);
     expect(decoded.userId).toBe(1);
-    expect(decoded.role).toBe('COMPANY_MANAGER');
+    expect(decoded.role).toBe('RENTER');
     expect(decoded.companyId).toBe(7);
   });
 });

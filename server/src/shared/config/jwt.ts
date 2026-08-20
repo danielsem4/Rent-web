@@ -33,3 +33,13 @@ export const JWT_ALGORITHM: Algorithm = 'HS256';
 /** Issuer/audience claims — set on sign and strictly validated on verify. */
 export const JWT_ISSUER = 'rentplus';
 export const JWT_AUDIENCE = 'rentplus-app';
+
+/**
+ * MFA challenge/enrollment token policy (SECURITY_PRINCIPLES.md §3/§24). A short-
+ * lived, single-purpose token issued after the first factor (credentials) that
+ * ONLY authorizes the MFA second step. It uses a DISTINCT audience so the primary
+ * `authenticate` middleware (which pins `JWT_AUDIENCE`) can never accept it as an
+ * access token, plus a `purpose` claim (`mfa_challenge` | `mfa_enroll`).
+ */
+export const MFA_TOKEN_TTL = '5m';
+export const JWT_MFA_AUDIENCE = 'rentplus-mfa';

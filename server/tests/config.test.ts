@@ -6,6 +6,7 @@ const STRONG_SECRET = 'x7Kd9Qp2Rm5Tn8Vb1Wc4Ye6Zg0Hj3Lo9Su2Ad5Fh8'; // 40+ chars,
 const validProd = (): NodeJS.ProcessEnv => ({
   NODE_ENV: 'production',
   JWT_SECRET: STRONG_SECRET,
+  MFA_ENCRYPTION_KEY: 'Zx3Bq9Lt2Mv6Pw1Cy4Rn7Ke0Hs5Ud8Ff2Ag6Jl9Q', // 40+ chars, not a placeholder
   DATABASE_URL: 'postgresql://user:pass@db.internal:5432/rentplus',
   CLIENT_URL: 'https://app.rentplus.example',
   PORT: '5001',
@@ -47,6 +48,24 @@ describe('loadConfig — production fail-fast', () => {
       loadConfig(env);
     } catch (err) {
       expect((err as Error).message).not.toContain('short');
+    }
+  });
+
+  it('throws when MFA_ENCRYPTION_KEY is missing in production (naming the variable)', () => {
+    const env = validProd();
+    delete env['MFA_ENCRYPTION_KEY'];
+    expect(() => loadConfig(env)).toThrow(/MFA_ENCRYPTION_KEY/);
+  });
+
+  it('throws when MFA_ENCRYPTION_KEY is a known placeholder (without echoing it)', () => {
+    const env = { ...validProd(), MFA_ENCRYPTION_KEY: 'change-me-in-production' };
+    try {
+      loadConfig(env);
+      throw new Error('expected loadConfig to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConfigError);
+      expect((err as Error).message).toContain('MFA_ENCRYPTION_KEY');
+      expect((err as Error).message).not.toContain('change-me-in-production');
     }
   });
 

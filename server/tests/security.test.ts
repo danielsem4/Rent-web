@@ -196,6 +196,7 @@ describe('CORS origin comes from validated config (no silent localhost fallback 
   const validProd = (over: Record<string, string | undefined> = {}) => ({
     NODE_ENV: 'production',
     JWT_SECRET: 'x'.repeat(40),
+    MFA_ENCRYPTION_KEY: 'y'.repeat(40),
     DATABASE_URL: 'postgres://u:p@db.example.com:5432/app',
     CLIENT_URL: 'https://app.example.com',
     ...over,

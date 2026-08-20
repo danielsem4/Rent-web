@@ -59,8 +59,19 @@ model User {
   // Security/session version. Incrementing it invalidates every previously issued
   // JWT for this user (revoke-all). Tokens carry the version they were issued at.
   tokenVersion Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  // ─ MFA / TOTP (SECURITY_PRINCIPLES.md §3/§24) ─
+  // isMfaEnabled is the login fast-path flag (true only after verify-setup). A
+  // present mfaSecret with isMfaEnabled:false means enrollment is pending.
+  // mfaSecret holds the AES-256-GCM CIPHERTEXT of the base32 TOTP secret — NEVER
+  // the plaintext (§8). mfaRecoveryCodes stores SHA-256 HASHES of single-use codes
+  // (one-way, popped on use) — the first String[] (Postgres array) in the schema,
+  // a deliberate deviation from the child-table pattern (a small fixed set tied 1:1
+  // to the user, regenerated on enrollment).
+  isMfaEnabled     Boolean  @default(false)
+  mfaSecret        String?
+  mfaRecoveryCodes String[] @default([])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   accountTokens AccountToken[]
   refreshTokens RefreshToken[]

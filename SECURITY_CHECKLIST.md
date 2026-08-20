@@ -47,7 +47,9 @@ deployment target, which is **not yet chosen** — those stay unchecked until th
 - [ ] **Cookies** — `Secure` on, `SameSite=strict`, correct `trust proxy` if behind a proxy/CDN.
       *(Batch 2: `TRUST_PROXY` is now a configurable hop count, OFF by default; set it to the exact
       number of trusted proxies at launch — never `true`.)*
-- [ ] **MFA** enforced for `SUPER_ADMIN` and `COMPANY_MANAGER`.
+- [x] **MFA** enforced for `SUPER_ADMIN` and `COMPANY_MANAGER`. *(Batch 6: mandatory TOTP, two-phase
+      login, hard-gated enrollment; secret AES-256-GCM encrypted at rest, recovery codes hashed
+      single-use. `modules/auth/mfa.repository.ts`, `auth.service.ts`. Client MFA UI is a follow-up.)*
 - [ ] **CSRF** protection implemented and tested. *(Batch 2: implemented + tested in code —
       Origin/Referer validation, fail-closed; verify at launch the production `CLIENT_URL` origin is
       correct.)*
@@ -100,7 +102,7 @@ cited) · **Partial** · **Missing** · **Needs verification** (deployment-depen
 | **V6 Authentication — password storage** | Implemented | bcrypt(10) — `auth.service.ts:29`, `users.service.ts:32` |
 | **V6 Authentication — enumeration** | Partial | login safe; `409` on authed create leaks existence — `users.service.ts:28` |
 | **V6 Authentication — brute-force / rate limit** | Implemented | **Batch 2** — `express-rate-limit` on login (per-IP + email+IP failed-only + **per-email/account failed-only, IP-independent** for distributed attacks) & refresh `app.ts`, `shared/security/rateLimit.ts`; tests `tests/ratelimit.test.ts`. Configurable `TRUST_PROXY` (off by default). Shared prod store (Redis) + correct `trust proxy` hop count still Needs Verification |
-| **V6 Authentication — MFA** | Missing | none; **P1** for privileged roles |
+| **V6 Authentication — MFA** | Implemented | **Batch 6** — mandatory TOTP for `SUPER_ADMIN`/`COMPANY_MANAGER`; two-phase login + `/api/auth/mfa/{challenge,setup,verify-setup,disable}`; secret AES-256-GCM encrypted, recovery codes hashed single-use `modules/auth/mfa.repository.ts`, `auth.service.ts`; tests `tests/mfa.test.ts`, `tests/integration/mfa.integration.test.ts` |
 | **V6 Authentication — credential recovery/reset** | Implemented | **Batch 3** — invitation/set-password + forgot/reset via random single-use SHA-256-hashed time-limited tokens; enumeration-safe; `tokenVersion` bump on change; plaintext provisioning removed — `modules/account/*`, `users.service.ts`; tests `tests/account.test.ts`, `tests/integration/account.integration.test.ts`. Email provider still to be wired (seam fails closed in prod) |
 | **V7 Session — binding & storage** | Implemented | HttpOnly cookie; no localStorage token — `cookie.ts`, `useAuthStore.ts` |
 | **V7 Session — termination / revocation** | Implemented | **Batch 1** — `tokenVersion` revoke-all + `isActive` checked every request `authenticate.ts`. **Batch 5** — per-session `RefreshToken` records; rotation + reuse detection (family revoke + `tokenVersion` bump); logout + password-reset revoke refresh tokens `modules/auth/refreshToken.repository.ts` |
@@ -123,7 +125,7 @@ cited) · **Partial** · **Missing** · **Needs verification** (deployment-depen
 | **V16 Monitoring** | Needs verification | no infrastructure yet |
 | **V17 WebRTC** | N/A | not used |
 | **API1 BOLA** | Implemented | tenant-scoped queries + tests |
-| **API2 Broken authentication** | Partial | strong basics; **Batch 2** added rate limiting + CSRF; revocation via `tokenVersion`. Still missing MFA (P1) |
+| **API2 Broken authentication** | Implemented | strong basics; **Batch 2** rate limiting + CSRF; **Batch 5** short-lived tokens + refresh rotation/reuse detection; **Batch 6** mandatory TOTP MFA for privileged roles. Revocation via `tokenVersion` + refresh-family revoke |
 | **API3 BOPLA (property-level authz)** | Implemented | projections + validated allowed fields |
 | **API4 Resource consumption / rate limits** | Partial | **Batch 2** — auth rate limiting on login (per-IP + email+IP + per-email/account) & refresh `app.ts`, `shared/security/rateLimit.ts`; explicit request/body-size caps still default (§14, future) |
 | **API8 Security misconfiguration** | Partial | helmet + CORS; **Batch 1** fixed error leak, added startup config validation, and wired CORS origin to the validated `config.clientUrl` (no direct `process.env`; prod cannot fall back to localhost) `app.ts`, `config/env.ts` |

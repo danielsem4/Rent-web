@@ -8,6 +8,7 @@ import type {
   RefreshTokenRecord,
   NewRefreshToken,
 } from '../src/modules/auth/refreshToken.repository';
+import type { IMfaRepository } from '../src/modules/auth/mfa.repository';
 import type { AuditEvent, IAuditLogger } from '../src/shared/audit/auditLogger';
 import { generateToken, hashToken } from '../src/shared/utils/token';
 import { Role } from '../src/shared/constants/roles';
@@ -76,13 +77,25 @@ function makeAudit() {
   return { audit, events };
 }
 
+/** No-op MFA repo — the refresh/logout paths never touch it; login here uses non-MFA users. */
+function makeMfaRepo(): IMfaRepository {
+  return {
+    getMfa: vi.fn(async () => null),
+    getPasswordHash: vi.fn(async () => null),
+    savePendingSecret: vi.fn(async () => {}),
+    enableMfa: vi.fn(async () => {}),
+    disableMfa: vi.fn(async () => {}),
+    consumeRecoveryCode: vi.fn(async () => false),
+  };
+}
+
 describe('AuthService.refresh — rotation', () => {
   it('rotates a valid token: retires the old, issues a new one, re-signs from the DB row', async () => {
     const raw = generateToken();
     const rt = makeRefreshRepo();
     rt.seed(raw, { userId: 1, familyId: 'fam-1' });
     const { audit, events } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState({ role: Role.COMPANY_WORKER, companyId: 5, tokenVersion: 9 })), rt.repo, audit);
+    const service = new AuthService(makeAuthRepo(authState({ role: Role.COMPANY_WORKER, companyId: 5, tokenVersion: 9 })), rt.repo, makeMfaRepo(), audit);
 
     const tokens = await service.refresh(raw, CTX);
 
@@ -107,7 +120,7 @@ describe('AuthService.refresh — reuse (breach) detection', () => {
     const rt = makeRefreshRepo();
     rt.seed(raw, { userId: 1, familyId: 'fam-9', isRevoked: true });
     const { audit, events } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState()), rt.repo, audit);
+    const service = new AuthService(makeAuthRepo(authState()), rt.repo, makeMfaRepo(), audit);
 
     await expect(service.refresh(raw, CTX)).rejects.toMatchObject({ statusCode: 401 });
     expect(rt.spies.revokeFamilyAndBumpUser).toHaveBeenCalledWith(1, 'fam-9');
@@ -121,7 +134,7 @@ describe('AuthService.refresh — reuse (breach) detection', () => {
     const rt = makeRefreshRepo();
     rt.seed(raw, { userId: 1, familyId: 'fam-2', expiresAt: new Date(Date.now() - 1000) });
     const { audit, events } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState()), rt.repo, audit);
+    const service = new AuthService(makeAuthRepo(authState()), rt.repo, makeMfaRepo(), audit);
 
     await expect(service.refresh(raw, CTX)).rejects.toMatchObject({ statusCode: 401 });
     expect(rt.spies.revokeFamilyAndBumpUser).toHaveBeenCalledWith(1, 'fam-2');
@@ -134,7 +147,7 @@ describe('AuthService.refresh — reuse (breach) detection', () => {
     rt.seed(raw, { userId: 1, familyId: 'fam-3' });
     rt.spies.rotate.mockResolvedValueOnce(false); // concurrent rotation won
     const { audit } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState()), rt.repo, audit);
+    const service = new AuthService(makeAuthRepo(authState()), rt.repo, makeMfaRepo(), audit);
 
     await expect(service.refresh(raw, CTX)).rejects.toMatchObject({ statusCode: 401 });
     expect(rt.spies.revokeFamilyAndBumpUser).toHaveBeenCalledWith(1, 'fam-3');
@@ -146,7 +159,7 @@ describe('AuthService.refresh — denial without mitigation', () => {
     const rt = makeRefreshRepo();
     rt.spies.findByHash.mockResolvedValue(null);
     const { audit } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState()), rt.repo, audit);
+    const service = new AuthService(makeAuthRepo(authState()), rt.repo, makeMfaRepo(), audit);
 
     await expect(service.refresh(generateToken(), CTX)).rejects.toMatchObject({ statusCode: 401 });
     expect(rt.spies.revokeFamilyAndBumpUser).not.toHaveBeenCalled();
@@ -155,7 +168,7 @@ describe('AuthService.refresh — denial without mitigation', () => {
   it('a missing refresh cookie is denied (401)', async () => {
     const rt = makeRefreshRepo();
     const { audit } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState()), rt.repo, audit);
+    const service = new AuthService(makeAuthRepo(authState()), rt.repo, makeMfaRepo(), audit);
     await expect(service.refresh(undefined, CTX)).rejects.toMatchObject({ statusCode: 401 });
   });
 
@@ -164,7 +177,7 @@ describe('AuthService.refresh — denial without mitigation', () => {
     const rt = makeRefreshRepo();
     rt.seed(raw, { userId: 1, familyId: 'fam-4' });
     const { audit } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState({ isActive: false })), rt.repo, audit);
+    const service = new AuthService(makeAuthRepo(authState({ isActive: false })), rt.repo, makeMfaRepo(), audit);
 
     await expect(service.refresh(raw, CTX)).rejects.toMatchObject({ statusCode: 401 });
     expect(rt.spies.rotate).not.toHaveBeenCalled();
@@ -172,26 +185,35 @@ describe('AuthService.refresh — denial without mitigation', () => {
 });
 
 describe('AuthService.login / logout — refresh-token issuance & revocation', () => {
-  it('login mints a refresh token in a fresh family', async () => {
+  it('login mints a refresh token in a fresh family (non-MFA user)', async () => {
     const passwordHash = await bcrypt.hash('password123', 10);
+    // RENTER + MFA off ⇒ one-step login (no second factor required).
     const record: UserRecord = {
-      id: 1, email: 'm@test.dev', passwordHash, name: 'M', role: Role.COMPANY_MANAGER, companyId: 7, isActive: true, tokenVersion: 0,
+      id: 1, email: 'r@test.dev', passwordHash, name: 'R', role: Role.RENTER, companyId: 7,
+      isActive: true, tokenVersion: 0, isMfaEnabled: false,
     };
     const rt = makeRefreshRepo();
     const { audit } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState(), record), rt.repo, audit);
+    const service = new AuthService(
+      makeAuthRepo(authState({ role: Role.RENTER }), record),
+      rt.repo,
+      makeMfaRepo(),
+      audit,
+    );
 
-    const result = await service.login({ email: 'm@test.dev', password: 'password123' }, CTX);
+    const result = await service.login({ email: 'r@test.dev', password: 'password123' }, CTX);
 
-    expect(result.accessToken).toBeTruthy();
-    expect(result.refreshToken).toBeTruthy();
+    expect(result.kind).toBe('session');
+    if (result.kind !== 'session') throw new Error('expected a session');
+    expect(result.tokens.accessToken).toBeTruthy();
+    expect(result.tokens.refreshToken).toBeTruthy();
     expect(rt.spies.create).toHaveBeenCalledTimes(1);
     const created = rt.spies.create.mock.calls[0]![0] as NewRefreshToken;
     expect(created.userId).toBe(1);
     expect(created.familyId).toBeTruthy();
     // Only the HASH is persisted — never the raw token handed to the client.
-    expect(created.tokenHash).toBe(hashToken(result.refreshToken));
-    expect(created.tokenHash).not.toBe(result.refreshToken);
+    expect(created.tokenHash).toBe(hashToken(result.tokens.refreshToken));
+    expect(created.tokenHash).not.toBe(result.tokens.refreshToken);
   });
 
   it('logout revokes the presented refresh token by hash and never throws', async () => {
@@ -199,7 +221,7 @@ describe('AuthService.login / logout — refresh-token issuance & revocation', (
     const rt = makeRefreshRepo();
     rt.seed(raw, { userId: 1 });
     const { audit, events } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState()), rt.repo, audit);
+    const service = new AuthService(makeAuthRepo(authState()), rt.repo, makeMfaRepo(), audit);
 
     await expect(service.logout(raw, CTX)).resolves.toBeUndefined();
     expect(rt.spies.revokeByHash).toHaveBeenCalledWith(hashToken(raw));
@@ -209,7 +231,7 @@ describe('AuthService.login / logout — refresh-token issuance & revocation', (
   it('logout with no refresh cookie still succeeds (no revoke call)', async () => {
     const rt = makeRefreshRepo();
     const { audit } = makeAudit();
-    const service = new AuthService(makeAuthRepo(authState()), rt.repo, audit);
+    const service = new AuthService(makeAuthRepo(authState()), rt.repo, makeMfaRepo(), audit);
     await expect(service.logout(undefined, CTX)).resolves.toBeUndefined();
     expect(rt.spies.revokeByHash).not.toHaveBeenCalled();
   });

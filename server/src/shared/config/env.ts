@@ -39,6 +39,10 @@ export interface RateLimitConfig {
     windowMs: number;
     max: number;
   };
+  mfaVerify: {
+    windowMs: number;
+    max: number;
+  };
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
@@ -48,6 +52,12 @@ export interface AppConfig {
   isProduction: boolean;
   port: number;
   jwtSecret: string;
+  /**
+   * Key for AES-256-GCM encryption of TOTP secrets at rest (SECURITY_PRINCIPLES.md
+   * §8). Required + strong in production (fail-fast, like `jwtSecret`); lenient in
+   * dev/test. The `encryption` util derives a 32-byte key via SHA-256 of this value.
+   */
+  mfaEncryptionKey: string;
   databaseUrl: string | undefined;
   clientUrl: string | undefined;
   /** Rate-limit policy values (SECURITY_PRINCIPLES.md §15/§28). */
@@ -111,6 +121,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const isProduction = nodeEnv === 'production';
 
   const jwtSecret = env['JWT_SECRET'];
+  const mfaEncryptionKey = env['MFA_ENCRYPTION_KEY'];
   const databaseUrl = env['DATABASE_URL'];
   const clientUrl = env['CLIENT_URL'];
   const rawPort = env['PORT'];
@@ -126,6 +137,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
     if (isPlaceholder(jwtSecret)) {
       errors.push('JWT_SECRET is a known placeholder/insecure value and must be replaced');
+    }
+  }
+
+  // MFA_ENCRYPTION_KEY — encrypts TOTP secrets at rest (§8). Required + strong in
+  // production (same discipline as JWT_SECRET); dev/test fall back to a non-secret
+  // default so the mocked suites keep working without configuration.
+  if (isProduction) {
+    if (!mfaEncryptionKey || mfaEncryptionKey.length === 0) {
+      errors.push('MFA_ENCRYPTION_KEY is required in production');
+    } else {
+      if (mfaEncryptionKey.length < MIN_JWT_SECRET_LENGTH) {
+        errors.push(
+          `MFA_ENCRYPTION_KEY is too weak (must be at least ${MIN_JWT_SECRET_LENGTH} characters)`,
+        );
+      }
+      if (isPlaceholder(mfaEncryptionKey)) {
+        errors.push('MFA_ENCRYPTION_KEY is a known placeholder/insecure value and must be replaced');
+      }
     }
   }
 
@@ -206,6 +235,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       ),
       max: readPositiveInt(env, 'RATE_LIMIT_INVITATION_MAX', rl.invitationActivation.max, errors),
     },
+    mfaVerify: {
+      windowMs: readPositiveInt(env, 'RATE_LIMIT_MFA_VERIFY_WINDOW_MS', rl.mfaVerify.windowMs, errors),
+      max: readPositiveInt(env, 'RATE_LIMIT_MFA_VERIFY_MAX', rl.mfaVerify.max, errors),
+    },
   };
 
   // TRUST_PROXY — optional. Absent => undefined (OFF, secure default). When
@@ -228,6 +261,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port,
     // Presence guaranteed above (JWT_SECRET) / allowed-absent in dev.
     jwtSecret: jwtSecret as string,
+    // Non-secret dev/test fallback (required + strong in prod, validated above).
+    mfaEncryptionKey: mfaEncryptionKey ?? 'dev-mfa-encryption-key-not-for-production',
     databaseUrl,
     clientUrl,
     rateLimit,

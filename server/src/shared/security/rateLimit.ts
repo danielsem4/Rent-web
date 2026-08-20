@@ -144,3 +144,26 @@ export function createInvitationRateLimiter(cfg: RateLimitConfig['invitationActi
     keyGenerator: ipKey,
   });
 }
+
+/**
+ * MFA verification limiter (SECURITY_PRINCIPLES.md §15) — mounted on the MFA
+ * second-factor endpoints. Keyed on `email + IP` when the request body carries an
+ * email (challenge/verify requests are not email-bearing, so this degrades to
+ * per-IP), counting only FAILED attempts (`skipSuccessfulRequests`) so a normal
+ * successful verification never consumes the budget. Bounds brute-forcing a
+ * 6-digit code; window-based (no permanent lockout).
+ */
+export function createMfaVerifyRateLimiter(cfg: RateLimitConfig['mfaVerify']) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: cfg.windowMs,
+    limit: cfg.max,
+    skipSuccessfulRequests: true,
+    keyGenerator: (req: Request): string => {
+      const email = (req.body as { email?: unknown } | undefined)?.email;
+      return typeof email === 'string' && email.trim() !== ''
+        ? `${normalizeEmail(email)}|${ipKey(req)}`
+        : ipKey(req);
+    },
+  });
+}

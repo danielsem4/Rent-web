@@ -18,6 +18,7 @@ import {
   createForgotPasswordRateLimiter,
   createResetPasswordRateLimiter,
   createInvitationRateLimiter,
+  createMfaVerifyRateLimiter,
 } from './shared/security/rateLimit';
 import { ConsoleAccountMailer, type AccountMailer } from './shared/notifications/mailer';
 import { loadConfig, type AppConfig } from './shared/config/env';
@@ -107,6 +108,11 @@ export function createApp(
     '/api/auth/invitation/accept',
     createInvitationRateLimiter(config.rateLimit.invitationActivation),
   );
+  // MFA second-factor endpoints (SECURITY_PRINCIPLES.md §15) — throttle code
+  // guessing on the challenge and enrollment-verify steps. Fresh limiter per
+  // createApp() (own in-memory store) like the others.
+  app.use('/api/auth/mfa/challenge', createMfaVerifyRateLimiter(config.rateLimit.mfaVerify));
+  app.use('/api/auth/mfa/verify-setup', createMfaVerifyRateLimiter(config.rateLimit.mfaVerify));
 
   // Health check route
   app.get('/api/health', (_req: Request, res: Response) => {

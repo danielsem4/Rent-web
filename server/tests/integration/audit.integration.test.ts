@@ -43,15 +43,17 @@ async function auditRows(action: string) {
 
 describe('Integration · audit trail (real DB)', () => {
   it('records AUTH_LOGIN_SUCCESS with the actor, tenant, and request context', async () => {
-    await loginAs(app, t.managerA.email);
+    // workerA is COMPANY_WORKER (non-privileged, MFA off) → one-step login →
+    // AUTH_LOGIN_SUCCESS. (Privileged users go through MFA → MFA_LOGIN_SUCCESS.)
+    await loginAs(app, t.workerA.email);
 
     const rows = await auditRows('AUTH_LOGIN_SUCCESS');
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
-    expect(row.userId).toBe(t.managerA.id);
-    expect(row.companyId).toBe(t.managerA.companyId);
+    expect(row.userId).toBe(t.workerA.id);
+    expect(row.companyId).toBe(t.workerA.companyId);
     expect(row.resourceType).toBe('AUTH');
-    expect(row.resourceId).toBe(String(t.managerA.id));
+    expect(row.resourceId).toBe(String(t.workerA.id));
     expect(row.ipAddress).toBeTruthy();
     // No credential material anywhere in the record.
     expect(JSON.stringify(row)).not.toContain(TEST_PASSWORD);

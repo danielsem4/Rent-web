@@ -10,6 +10,7 @@ export interface UserRecord {
   companyId: number;
   isActive: boolean;
   tokenVersion: number;
+  isMfaEnabled: boolean;
 }
 
 export interface SafeUser {
@@ -53,6 +54,7 @@ export class AuthRepository implements IAuthRepository {
       companyId: user.companyId,
       isActive: user.isActive,
       tokenVersion: user.tokenVersion,
+      isMfaEnabled: user.isMfaEnabled,
     };
   }
 
