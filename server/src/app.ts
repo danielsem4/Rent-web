@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { createAuthRouter } from './modules/auth/auth.routes';
 import { createUsersRouter } from './modules/users/users.routes';
 import { createPropertiesRouter } from './modules/properties/properties.routes';
+import { createWorkersRouter } from './modules/workers/workers.routes';
 import { createPaymentsRouter } from './modules/payments/payments.routes';
 import { createAccountRouter } from './modules/account/account.routes';
 import { errorHandler } from './shared/middlewares/errorHandler';
@@ -14,6 +15,8 @@ import { csrfOriginCheck } from './shared/middlewares/csrf';
 import { AuditService } from './shared/audit/audit.service';
 import { AuditLogRepository } from './shared/audit/audit.repository';
 import type { IAuditLogger } from './shared/audit/auditLogger';
+import { LocalFileStorage } from './shared/storage/localFileStorage';
+import type { IFileStorage } from './shared/storage/fileStorage';
 import {
   createLoginRateLimiters,
   createRefreshRateLimiter,
@@ -34,6 +37,8 @@ import { loadConfig, type AppConfig } from './shared/config/env';
 export interface AppOverrides {
   mailer?: AccountMailer;
   auditLogger?: IAuditLogger;
+  /** File-storage backend (defaults to encrypted local disk from config). */
+  storage?: IFileStorage;
 }
 
 /**
@@ -138,12 +143,17 @@ export function createApp(
   // prisma singleton). Resilient: a write failure never breaks a request.
   const auditLogger = overrides.auditLogger ?? new AuditService(new AuditLogRepository());
 
+  // Encrypted file storage for worker identity documents (SECURITY §16). Local
+  // disk by default (bytes AES-256-GCM encrypted at rest); tests inject a stub.
+  const storage = overrides.storage ?? new LocalFileStorage(config.fileStorageDir);
+
   // Module routes. The account router mounts additional POST endpoints under
   // /api/auth (invitation/accept, forgot-password, reset-password).
   app.use('/api/auth', createAuthRouter({ auditLogger, mailer }));
   app.use('/api/auth', createAccountRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
   app.use('/api/users', createUsersRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
   app.use('/api/properties', createPropertiesRouter({ auditLogger }));
+  app.use('/api/workers', createWorkersRouter({ auditLogger, storage }));
   app.use('/api/payments', createPaymentsRouter());
 
   // Error handler (must be last)

@@ -23,3 +23,6 @@ coverage/
 .DS_Store
 .vscode/
 .idea/
+
+# Locally-stored (encrypted) uploaded files — never commit
+uploads/

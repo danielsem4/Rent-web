@@ -1,6 +1,6 @@
 import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Home, Building2, Users, Settings } from "lucide-react";
+import { Home, Building2, Users, UsersRound, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useInitAuth } from "@/hooks/common/useInitAuth";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -36,6 +36,12 @@ const NAV_ITEMS: NavItem[] = [
     to: "/properties",
     labelKey: "nav.properties",
     icon: Building2,
+    roles: [ROLES.COMPANY_MANAGER, ROLES.COMPANY_WORKER],
+  },
+  {
+    to: "/workers",
+    labelKey: "nav.workers",
+    icon: UsersRound,
     roles: [ROLES.COMPANY_MANAGER, ROLES.COMPANY_WORKER],
   },
   {

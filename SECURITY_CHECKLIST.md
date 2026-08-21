@@ -78,7 +78,10 @@ deployment target, which is **not yet chosen** — those stay unchecked until th
       the **devDependency** Prisma CLI chain; **tooling-only**, not shipped to runtime. NOT fixed —
       the only auto-fix is a breaking Prisma major downgrade. Recorded in `SECURITY_GAP_ANALYSIS.md`
       §9; revisit when a non-breaking `@prisma/config` bump lands.)*
-- [ ] **File security** — N/A until a file feature exists (then apply §16).
+- [x] **File security** — worker identity documents: allow-list (PDF/JPG/PNG) + magic-byte
+  validation, 10 MB cap, UUID storage keys, private encrypted-at-rest local storage, authenticated
+  tenant-scoped attachment downloads, per-user upload rate limit, audit names-only
+  (`modules/workers/documents/*`, `shared/storage/*`). **AV scanning deferred** (§16, gap analysis).
 - [ ] **Backups** defined **and restore tested**.
 - [ ] **Incident response** runbook exists (disable, revoke, rotate, review, recover).
 - [ ] **Production error handling** — internal errors hidden; safe generic responses.
@@ -112,7 +115,7 @@ cited) · **Partial** · **Missing** · **Needs verification** (deployment-depen
 | **V8 Authorization — object/tenant (BOLA/IDOR)** | Implemented | query-level `companyId` scoping; tested — `users.repository.ts`, `tenant-isolation.test.ts` |
 | **V8 Authorization — centralized policy** | Partial | per-module role gate; no permission catalog (P2) |
 | **V4 Access-control on account state (disable)** | Implemented | **Batch 1** — `User.isActive`; login generic 401 (enumeration-safe, reason logged server-side) + next-request 401 `auth.service.ts`, `authenticate.ts` |
-| **V5 File handling / uploads** | N/A | no file feature (§16 applies when added) |
+| **V5 File handling / uploads** | 🟡 | worker docs: magic-byte allow-list, size cap, UUID keys, private encrypted-at-rest storage, authenticated attachment downloads, tenant-scoped (`modules/workers/documents/documents.service.ts`, `shared/storage/localFileStorage.ts`). AV scanning **deferred** (Needs Verification) |
 | **V9 Self-contained tokens (JWT)** | Implemented | **Batch 1** — pinned HS256 + issuer/audience validated `authenticate.ts`, `config/jwt.ts` |
 | **V10 OAuth / OIDC** | N/A | not used |
 | **V11 Cryptography** | Implemented | bcrypt via established lib; no custom crypto |

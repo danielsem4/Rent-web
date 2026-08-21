@@ -36,6 +36,14 @@ enum PaymentStatus {
   PAID
 }
 
+// Kind of identity document attached to a Worker. `OTHER` is a catch-all.
+enum WorkerDocumentType {
+  PASSPORT
+  VISA
+  INSURANCE
+  OTHER
+}
+
 // ─── Company ─────────────────────────────────────────────
 
 model Company {
@@ -47,6 +55,8 @@ model Company {
   users      User[]
   properties Property[]
   payments   Payment[]
+  workers    Worker[]
+  workerDocuments WorkerDocument[]
 }
 
 // ─── User ────────────────────────────────────────────────
@@ -185,6 +195,7 @@ model Property {
   updatedAt     DateTime  @updatedAt
 
   payments Payment[]
+  workers  Worker[]
 
   @@index([companyId])
 }
@@ -211,4 +222,83 @@ model Payment {
 
   @@index([companyId])
   @@index([propertyId])
+}
+
+// ─── Worker ──────────────────────────────────────────────
+// A foreign-worker renter record MANAGED BY company staff (distinct from a login
+// account — see the RENTER Role, which is orthogonal). Tenant-isolated by
+// companyId, exactly like Property/Payment.
+//
+// Sensitive-PII (SECURITY_PRINCIPLES.md §7/§8): passport number and insurance
+// policy number are REGULATED identifiers, stored ENCRYPTED at rest (AES-256-GCM,
+// shared/utils/fieldEncryption). The *Enc columns hold ciphertext only; the
+// plaintext is decrypted for a single authorized detail read and is NEVER returned
+// in list responses, logs, URLs, or audit metadata. Expiry DATES stay plaintext —
+// they are not sensitive on their own and drive the 90/60/30-day expiry alerts
+// (derived at read time, mirroring the Payment "overdue" convention).
+//
+// `preferredLanguage` is reserved for the deferred AI-translation feature
+// (Thai/Hindi/Sinhala → Hebrew); no LLM pipeline is built yet.
+
+model Worker {
+  id          Int     @id @default(autoincrement())
+  companyId   Int
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Profile
+  nameHe            String
+  nameEn            String
+  nationality       String
+  entryDate         DateTime?
+  preferredLanguage String? // 'th' | 'hi' | 'si' | 'he'
+  // Documents (number ENCRYPTED; expiry plaintext for alerts)
+  passportNumberEnc String?
+  passportExpiry    DateTime?
+  visaType          String?
+  visaExpiry        DateTime?
+  // Medical insurance (policy number ENCRYPTED; expiry plaintext)
+  insuranceProvider     String?
+  insurancePolicyNumEnc String?
+  insuranceCoverageType String?
+  insuranceExpiry       DateTime?
+  // Contact + apartment assignment
+  phone      String?
+  employer   String?
+  propertyId Int?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  documents WorkerDocument[]
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// ─── WorkerDocument ──────────────────────────────────────
+// An identity document (passport/visa/insurance scan) attached to a Worker.
+// Sensitive-PII (SECURITY_PRINCIPLES.md §7/§8/§16): the FILE BYTES are the
+// regulated data (a passport scan is the passport) and are stored ENCRYPTED at
+// rest by the storage backend (AES-256-GCM, shared/storage/localFileStorage).
+// This table holds only METADATA — never the bytes. `storageKey` is a
+// server-generated UUID (never a client filename → no path traversal);
+// `originalName` is display-only and treated as PII (never logged/audited).
+// Tenant-isolated by companyId, exactly like Worker/Property.
+
+model WorkerDocument {
+  id           Int                @id @default(autoincrement())
+  companyId    Int
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  workerId     Int
+  worker       Worker             @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  docType      WorkerDocumentType
+  originalName String
+  storageKey   String
+  mimeType     String
+  size         Int
+  checksum     String
+  createdAt    DateTime           @default(now())
+
+  @@index([companyId])
+  @@index([workerId])
 }

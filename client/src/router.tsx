@@ -6,6 +6,9 @@ import Settings from "@/screens/settings/Settings";
 import Properties from "@/screens/properties/Properties";
 import PropertyForm from "@/screens/properties/PropertyForm";
 import PropertyDetail from "@/screens/properties/PropertyDetail";
+import Workers from "@/screens/workers/Workers";
+import WorkerForm from "@/screens/workers/WorkerForm";
+import WorkerDetail from "@/screens/workers/WorkerDetail";
 import Employees from "@/screens/employees/Employees";
 import NotFound from "@/screens/not-found/NotFound";
 import Forbidden from "@/screens/forbidden/Forbidden";
@@ -47,6 +50,24 @@ export const router = createBrowserRouter([
             children: [
               { path: "properties/new", element: <PropertyForm /> },
               { path: "properties/:id/edit", element: <PropertyForm /> },
+            ],
+          },
+        ],
+      },
+      // Foreign Workers: same authorization as properties. Read (list/detail) is
+      // open to company managers + workers; writes (new/edit) to managers only.
+      {
+        element: (
+          <RoleProtectedLayout roles={[ROLES.COMPANY_MANAGER, ROLES.COMPANY_WORKER]} />
+        ),
+        children: [
+          { path: "workers", element: <Workers /> },
+          { path: "workers/:id", element: <WorkerDetail /> },
+          {
+            element: <RoleProtectedLayout roles={[ROLES.COMPANY_MANAGER]} />,
+            children: [
+              { path: "workers/new", element: <WorkerForm /> },
+              { path: "workers/:id/edit", element: <WorkerForm /> },
             ],
           },
         ],

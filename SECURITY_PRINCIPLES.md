@@ -58,17 +58,26 @@ findings). This file states *what must be true*; the gap analysis states *what i
 - User credentials (`User.passwordHash`) and session tokens (JWT in the `token` cookie).
 - Tenant-scoped business data: `Company`, `User`, `Property` (property records include
   `entryCode`, meter IDs, owner name/phone — treat as **confidential PII**).
+- Foreign-worker records (`Worker`): identity documents and medical-insurance data. The
+  passport number and insurance policy number are **regulated PII** and are stored
+  encrypted at rest (§8); nationality, visa/insurance metadata, phone, and expiry dates are
+  confidential PII.
 - Administrative capability (`SUPER_ADMIN`, `COMPANY_MANAGER` privileged actions).
 
 **Data classification**
 - *Public:* `/api/health`. *Confidential:* everything else. *PII:* user email/name, property
-  owner name/phone, entry codes. There is currently **no** medical/regulated data.
+  owner name/phone, entry codes, and foreign-worker profile/contact data. *Regulated PII:*
+  foreign-worker **passport numbers**, **medical-insurance policy numbers**, and uploaded
+  **identity-document files** (passport/visa/insurance scans) — encrypted at rest, omitted from
+  list responses, downloadable only via an authenticated tenant-scoped endpoint, and never
+  written to logs/URLs/audit metadata.
 
 **Principals / trust boundaries**
 - Roles: `SUPER_ADMIN`, `COMPANY_MANAGER`, `COMPANY_WORKER`, `RENTER` (Prisma `Role` enum —
   the single source of truth). Multi-tenant by `companyId`.
-- Boundaries: browser → API (cookie-authenticated), API → PostgreSQL. No third-party egress,
-  no file storage, **no AI/LLM** boundary exists today.
+- Boundaries: browser → API (cookie-authenticated), API → PostgreSQL, and API → **local
+  encrypted file storage** for worker identity documents (an S3 backend is planned behind the
+  same storage seam — not built). No third-party egress, **no AI/LLM** boundary exists today.
 
 **Threats we actively defend against** (with today's status; see gap analysis for detail):
 account takeover, privilege escalation, IDOR/BOLA, broken authorization, brute force /
@@ -174,8 +183,10 @@ Requirements:
 - Apply **data minimization** — collect only what the product needs.
 - **Never expose Prisma models directly.** Return purpose-built projections (e.g. the existing
   `SafeUser`, which omits `passwordHash`). Return only fields the client needs.
-- Sensitive data (passwords, tokens, entry codes, owner contact info) must not appear in logs,
-  URLs/query strings, analytics, exception messages, or browser storage.
+- Sensitive data (passwords, tokens, entry codes, owner contact info, worker passport/insurance
+  numbers) must not appear in logs, URLs/query strings, analytics, exception messages, or
+  browser storage. Regulated identifiers are additionally omitted from list projections and only
+  returned on an authorized single-record read (see `WorkerListItem`).
 - Define deletion/retention expectations per data type before that data goes to production.
 
 ---
@@ -187,6 +198,12 @@ Requirements:
   see §25; currently **Needs Verification**, not implemented.)*
 - **Passwords are hashed (bcrypt), not encrypted.** Never invent cryptography — use established
   primitives. For any especially sensitive field, evaluate field-level encryption explicitly.
+- **Field-level encryption is implemented** for regulated worker identifiers (passport number,
+  insurance policy number) via AES-256-GCM (`server/src/shared/utils/fieldEncryption.ts`), keyed
+  by `FIELD_ENCRYPTION_KEY` (32 bytes / 64 hex; startup-validated, production fail-fast, §9). A
+  fresh random IV per value + the GCM auth tag give confidentiality + tamper detection; the
+  trade-off is that these columns are non-searchable. Key rotation makes prior ciphertext
+  undecryptable — treat as a deliberate migration.
 
 ---
 
@@ -264,13 +281,38 @@ Requirements:
 
 ---
 
-## 16. File security — *Not Applicable today*
+## 16. File security — *Binding (worker identity documents)*
 
-There is **no** file upload/storage feature. **Before any is added**, this section becomes
-binding: allow-listed types, size limits, generated/sanitized filenames, private storage,
-authorization checks, content/signature validation (never trust browser MIME), never execute
-uploaded content, authenticated downloads or short-lived signed URLs, and malware scanning for
-untrusted uploads.
+Worker identity-document upload/storage is implemented (`modules/workers/documents/*`,
+`shared/storage/*`). Controls in force:
+
+- **Allow-listed types** — PDF / JPEG / PNG only, validated by **magic bytes** in the service
+  (`documents.schema.ts::sniffFileType`); the browser-supplied MIME is never trusted (a fast
+  multer `fileFilter` is only a first-pass reject).
+- **Size limit** — 10 MB, enforced by multer `limits.fileSize` and re-checked in the service.
+- **Generated filenames** — the storage key is a server-generated UUID; the client filename is
+  never used as a path (no traversal). `originalName` is kept as display metadata only and is
+  sanitized (control chars / quotes stripped) before use in the `Content-Disposition` header.
+- **Private storage** — files live outside any web-served path (the app serves no static files);
+  reachable only via the authenticated endpoint. Local disk now (encrypted); S3 (private + SSE)
+  planned behind the same `IFileStorage` seam.
+- **Encrypted at rest** — bytes are AES-256-GCM encrypted (`encryptBuffer`, keyed by
+  `FIELD_ENCRYPTION_KEY`) before touching disk; decrypted only when streaming an authorized
+  download (§8).
+- **Authorization + tenant isolation** — every op is `authenticate` + `authorize` gated (read =
+  MANAGER/WORKER, write = MANAGER) and scoped by `companyId`; the parent worker is verified to
+  belong to the caller's company (foreign → 404, no leak).
+- **Never executed / no inline render** — downloads are always `Content-Disposition: attachment`
+  with `X-Content-Type-Options: nosniff`.
+- **Rate limited** — per-user upload limiter (§14/§15).
+- **Audit** — upload/download/delete audited with `{ workerId, docType }` metadata only, never
+  the filename or bytes (§18).
+
+**Deferred (Needs Verification):** **malware/AV scanning** of uploads is NOT implemented — no
+scanner exists in the current environment. This is an explicit gap (§1: not silently skipped),
+tracked in the gap analysis; the allow-list + magic-byte validation + no-execution + attachment
+disposition + at-rest encryption above are the compensating controls until an AV pipeline (e.g.
+on S3 ingest) is added.
 
 ---
 
