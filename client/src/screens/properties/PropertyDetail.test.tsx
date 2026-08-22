@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import "@/i18n";
 import type { IProperty } from "@/common/types/property";
@@ -22,6 +22,22 @@ vi.mock("./hooks/queries/useProperties", () => ({
 vi.mock("@/store/useAuthStore", () => ({
   useAuthStore: (selector: (s: { user: { role: string } }) => unknown) =>
     selector({ user: { role: h.role } }),
+}));
+// Property-detail data-group hooks — stubbed empty so panels render without a
+// network/QueryClient. (Radix Tabs only mount the active panel, but stub all.)
+const emptyQuery = { data: [], isLoading: false, isError: false };
+vi.mock("./hooks/queries/usePropertyGroups", () => ({
+  propertyGroupKey: (id: number | undefined, g: string) => ["properties", id, g],
+  usePropertyBills: () => emptyQuery,
+  usePropertyGuarantees: () => emptyQuery,
+  usePropertyExpenses: () => emptyQuery,
+  usePropertyInspections: () => emptyQuery,
+  usePropertyRentHistory: () => emptyQuery,
+}));
+vi.mock("./hooks/queries/usePropertyEquipment", () => ({
+  usePropertyEquipment: () => emptyQuery,
+  useCreateEquipment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteEquipment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import PropertyDetail from "./PropertyDetail";
@@ -63,18 +79,32 @@ beforeEach(() => {
 });
 
 describe("PropertyDetail", () => {
-  it("renders the property fields, including entryCode", () => {
+  it("renders the property fields on the default Overview tab, including entryCode", () => {
     renderDetail();
     expect(screen.getByText("Tel Aviv, 1 Herzl St")).toBeInTheDocument();
     expect(screen.getByText("Owner One")).toBeInTheDocument();
     expect(screen.getByText("SECRET-1234")).toBeInTheDocument();
   });
 
+  it("switches to the Finances tab and shows the rent history section", () => {
+    renderDetail();
+    // Radix Tabs activates on mouseDown, not click.
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Finances" }));
+    expect(screen.getByText("Monthly rent history")).toBeInTheDocument();
+    expect(screen.getByText("No rent payments recorded yet.")).toBeInTheDocument();
+  });
+
+  it("switches to the Bills tab and shows the utility-bills empty state", () => {
+    renderDetail();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Bills" }));
+    expect(screen.getByText("No bills recorded yet.")).toBeInTheDocument();
+  });
+
   it("shows occupancy (current / max) in the overview", () => {
     h.query = { data: property({ total: 2, maxCapacity: 5 }), isLoading: false, isError: false };
     renderDetail();
-    // The occupancy bar renders a "2 / 5" label.
-    expect(screen.getByText("2 / 5")).toBeInTheDocument();
+    // "2 / 5" appears in both the hero occupancy bar and the profile field.
+    expect(screen.getAllByText("2 / 5").length).toBeGreaterThan(0);
   });
 
   it("shows an Edit link for a manager, pointing at the edit route", () => {

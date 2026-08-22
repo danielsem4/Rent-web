@@ -11,4 +11,10 @@ export const paymentsApi = {
     const { data } = await api.get<ListResponse>("/payments");
     return data.payments;
   },
+
+  /** Rent history for one property (server verifies parent ownership + tenant scope). */
+  async listByProperty(propertyId: number): Promise<IPaymentListItem[]> {
+    const { data } = await api.get<ListResponse>(`/properties/${propertyId}/payments`);
+    return data.payments;
+  },
 };

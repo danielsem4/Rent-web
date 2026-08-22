@@ -18,6 +18,7 @@ export interface PropertyRecord {
   contractStart: Date | null;
   contractEnd: Date | null;
   monthlyRent: number;
+  rooms: number | null;
   maxCapacity: number;
   total: number;
   notes: string | null;
@@ -46,6 +47,7 @@ export interface CreatePropertyData {
   contractStart?: Date;
   contractEnd?: Date;
   monthlyRent?: number;
+  rooms?: number;
   maxCapacity?: number;
   total?: number;
   notes?: string;
@@ -85,6 +87,7 @@ export class PropertiesRepository implements IPropertiesRepository {
         contractStart: true,
         contractEnd: true,
         monthlyRent: true,
+        rooms: true,
         maxCapacity: true,
         total: true,
         notes: true,

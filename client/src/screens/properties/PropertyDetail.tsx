@@ -2,74 +2,32 @@ import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   Loader2,
-  Pencil,
   ArrowLeft,
-  Users,
-  UserRound,
+  LayoutGrid,
+  Receipt,
+  Package,
   Banknote,
-  KeyRound,
-  CalendarDays,
+  ClipboardCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuthStore } from "@/store/useAuthStore";
 import { ROLES } from "@/common/types/role";
 import { useProperty } from "./hooks/queries/useProperties";
-import { OccupancyBar } from "./components/Occupancy";
+import { PropertyHeader } from "./components/PropertyHeader";
+import { OverviewPanel } from "./components/overview/OverviewPanel";
+import { BillsPanel } from "./components/bills/BillsPanel";
+import { EquipmentPanel } from "./components/equipment/EquipmentPanel";
+import { FinancesPanel } from "./components/finances/FinancesPanel";
+import { InspectionsPanel } from "./components/inspections/InspectionsPanel";
 
-/** A single label/value pair inside a section grid. */
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-muted-foreground text-sm font-medium">{label}</span>
-      <span className="break-words">{value ?? "—"}</span>
-    </div>
-  );
-}
-
-/** A headline metric tile for the overview hero. */
-function StatTile({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="bg-accent/40 flex flex-col gap-1 rounded-lg border p-4">
-      <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
-        {icon}
-        {label}
-      </span>
-      <span className="text-2xl font-semibold tabular-nums">{value}</span>
-    </div>
-  );
-}
-
-/** A titled section card grouping related fields. */
-function Section({
-  icon,
-  title,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          {icon}
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4 sm:grid-cols-2">{children}</CardContent>
-    </Card>
-  );
-}
+const TABS = [
+  { value: "overview", labelKey: "properties.tabs.overview", icon: LayoutGrid },
+  { value: "bills", labelKey: "properties.tabs.bills", icon: Receipt },
+  { value: "equipment", labelKey: "properties.tabs.equipment", icon: Package },
+  { value: "finances", labelKey: "properties.tabs.finances", icon: Banknote },
+  { value: "inspections", labelKey: "properties.tabs.inspections", icon: ClipboardCheck },
+] as const;
 
 export default function PropertyDetail() {
   const { t, i18n } = useTranslation();
@@ -79,9 +37,6 @@ export default function PropertyDetail() {
   // UX-only gating — the server is the enforcement point.
   const role = useAuthStore((s) => s.user?.role);
   const canWrite = role === ROLES.COMPANY_MANAGER;
-
-  const formatDate = (value: string | null | undefined) =>
-    value ? new Date(value).toLocaleDateString(i18n.language) : "—";
 
   if (isLoading) {
     return (
@@ -107,71 +62,48 @@ export default function PropertyDetail() {
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/properties">
-            <ArrowLeft className="size-4" />
-            {t("properties.back")}
-          </Link>
-        </Button>
-        {canWrite && (
-          <Button asChild size="sm">
-            <Link to={`/properties/${property.id}/edit`}>
-              <Pencil className="size-4" />
-              {t("properties.edit")}
-            </Link>
-          </Button>
-        )}
-      </div>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+      {/* Breadcrumb */}
+      <nav
+        aria-label="breadcrumb"
+        className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm"
+      >
+        <Link to="/properties" className="hover:text-foreground transition-colors">
+          {t("properties.title")}
+        </Link>
+        <span aria-hidden>/</span>
+        <span className="text-foreground font-medium">{property.address}</span>
+      </nav>
 
-      {/* Hero: title + headline metrics + occupancy */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-xl">
-            {property.city}, {property.address}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <StatTile
-              icon={<Users className="size-3.5" />}
-              label={t("properties.total")}
-              value={property.total}
-            />
-            <StatTile
-              icon={<UserRound className="size-3.5" />}
-              label={t("properties.maxCapacity")}
-              value={property.maxCapacity}
-            />
-            <StatTile
-              icon={<Banknote className="size-3.5" />}
-              label={t("properties.rent")}
-              value={property.monthlyRent.toLocaleString(i18n.language)}
-            />
-          </div>
-          <OccupancyBar total={property.total} maxCapacity={property.maxCapacity} />
-        </CardContent>
-      </Card>
+      <PropertyHeader property={property} canWrite={canWrite} />
 
-      <Section icon={<UserRound className="size-4" />} title={t("properties.sectionOwner")}>
-        <Field label={t("properties.ownerName")} value={property.ownerName} />
-        <Field label={t("properties.ownerPhone")} value={property.ownerPhone} />
-      </Section>
+      {/* dir keeps arrow-key tab navigation aligned with reading order in RTL. */}
+      <Tabs defaultValue="overview" dir={i18n.dir()}>
+        <TabsList>
+          {TABS.map(({ value, labelKey, icon: Icon }) => (
+            <TabsTrigger key={value} value={value}>
+              <Icon className="size-4" aria-hidden />
+              {t(labelKey)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      <Section icon={<KeyRound className="size-4" />} title={t("properties.sectionAccess")}>
-        <Field label={t("properties.entryCode")} value={property.entryCode} />
-        <Field label={t("properties.electricMeter")} value={property.electricMeter} />
-        <Field label={t("properties.waterMeter")} value={property.waterMeter} />
-      </Section>
-
-      <Section icon={<CalendarDays className="size-4" />} title={t("properties.sectionContract")}>
-        <Field label={t("properties.contractStart")} value={formatDate(property.contractStart)} />
-        <Field label={t("properties.contractEnd")} value={formatDate(property.contractEnd)} />
-        <div className="sm:col-span-2">
-          <Field label={t("properties.notes")} value={property.notes} />
-        </div>
-      </Section>
+        <TabsContent value="overview">
+          <OverviewPanel property={property} />
+        </TabsContent>
+        <TabsContent value="bills">
+          <BillsPanel propertyId={property.id} />
+        </TabsContent>
+        <TabsContent value="equipment">
+          <EquipmentPanel propertyId={property.id} canWrite={canWrite} />
+        </TabsContent>
+        <TabsContent value="finances">
+          <FinancesPanel propertyId={property.id} />
+        </TabsContent>
+        <TabsContent value="inspections">
+          <InspectionsPanel propertyId={property.id} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

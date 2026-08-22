@@ -8,6 +8,12 @@ import { createPropertySchema, updatePropertySchema } from './properties.schema'
 import { PropertiesRepository } from './properties.repository';
 import { PropertiesService } from './properties.service';
 import { createPropertiesController } from './properties.controller';
+import { createUtilityBillsRouter } from './utility-bills/utility-bills.routes';
+import { createEquipmentRouter } from './equipment/equipment.routes';
+import { createGuaranteesRouter } from './guarantees/guarantees.routes';
+import { createExpensesRouter } from './expenses/expenses.routes';
+import { createInspectionsRouter } from './inspections/inspections.routes';
+import { createPropertyPaymentsRouter } from './payments/property-payments.routes';
 
 export interface PropertiesRouterDeps {
   auditLogger: IAuditLogger;
@@ -44,5 +50,14 @@ export function createPropertiesRouter(deps: PropertiesRouterDeps): Router {
   router.post('/', canWrite, validateRequest(createPropertySchema), controller.create);
   router.patch('/:id', canWrite, validateRequest(updatePropertySchema), controller.update);
   router.delete('/:id', canWrite, controller.remove);
+
+  // Property-scoped sub-resources (each verifies parent ownership + tenant scope).
+  const sub = { auditLogger: deps.auditLogger };
+  router.use('/:propertyId/utility-bills', createUtilityBillsRouter(sub));
+  router.use('/:propertyId/equipment', createEquipmentRouter(sub));
+  router.use('/:propertyId/guarantees', createGuaranteesRouter(sub));
+  router.use('/:propertyId/expenses', createExpensesRouter(sub));
+  router.use('/:propertyId/inspections', createInspectionsRouter(sub));
+  router.use('/:propertyId/payments', createPropertyPaymentsRouter());
   return router;
 }

@@ -25,6 +25,7 @@ const monthlyRent = z.coerce.number().int('Monthly rent must be a whole number')
 // enforced in the service where the full record (incl. partial-update baseline) is known.
 const maxCapacity = z.coerce.number().int('Max capacity must be a whole number').min(1);
 const total = z.coerce.number().int('Occupants must be a whole number').min(0);
+const rooms = z.coerce.number().int('Rooms must be a whole number').min(0).max(100);
 // Accept an ISO date string (what the client sends) and coerce to a Date for Prisma.
 const contractDate = z.coerce.date();
 
@@ -43,6 +44,7 @@ export const createPropertySchema = z.object({
   contractStart: contractDate.optional(),
   contractEnd: contractDate.optional(),
   monthlyRent: monthlyRent.optional(),
+  rooms: rooms.optional(),
   maxCapacity: maxCapacity.optional(),
   total: total.optional(),
   notes: z.string().max(2000).optional(),
@@ -65,6 +67,7 @@ export const updatePropertySchema = z
     contractStart: contractDate.optional(),
     contractEnd: contractDate.optional(),
     monthlyRent: monthlyRent.optional(),
+    rooms: rooms.optional(),
     maxCapacity: maxCapacity.optional(),
     total: total.optional(),
     notes: z.string().max(2000).optional(),

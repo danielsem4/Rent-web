@@ -27,7 +27,20 @@ export interface PaymentListItem {
 
 export interface IPaymentsRepository {
   listByCompany(companyId: number): Promise<PaymentListItem[]>;
+  listByPropertyInCompany(propertyId: number, companyId: number): Promise<PaymentListItem[]>;
 }
+
+/** Projection shared by the company-wide and property-scoped list queries. */
+const LIST_SELECT = {
+  id: true,
+  companyId: true,
+  propertyId: true,
+  amount: true,
+  dueDate: true,
+  paidAt: true,
+  status: true,
+  property: { select: { id: true, city: true, address: true } },
+} as const;
 
 export class PaymentsRepository implements IPaymentsRepository {
   async listByCompany(companyId: number): Promise<PaymentListItem[]> {
@@ -36,16 +49,20 @@ export class PaymentsRepository implements IPaymentsRepository {
     return prisma.payment.findMany({
       where: { companyId },
       orderBy: { dueDate: 'asc' },
-      select: {
-        id: true,
-        companyId: true,
-        propertyId: true,
-        amount: true,
-        dueDate: true,
-        paidAt: true,
-        status: true,
-        property: { select: { id: true, city: true, address: true } },
-      },
+      select: LIST_SELECT,
+    });
+  }
+
+  async listByPropertyInCompany(
+    propertyId: number,
+    companyId: number,
+  ): Promise<PaymentListItem[]> {
+    // Both tenant + parent conditions inside the query — a foreign-company or
+    // wrong-property id simply returns no rows.
+    return prisma.payment.findMany({
+      where: { companyId, propertyId },
+      orderBy: { dueDate: 'desc' },
+      select: LIST_SELECT,
     });
   }
 }

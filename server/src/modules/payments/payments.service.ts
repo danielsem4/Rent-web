@@ -12,4 +12,8 @@ export class PaymentsService {
   async list(currentUser: CurrentUser): Promise<PaymentListItem[]> {
     return this.repo.listByCompany(currentUser.companyId);
   }
+
+  async listByProperty(propertyId: number, currentUser: CurrentUser): Promise<PaymentListItem[]> {
+    return this.repo.listByPropertyInCompany(propertyId, currentUser.companyId);
+  }
 }

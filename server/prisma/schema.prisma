@@ -44,6 +44,56 @@ enum WorkerDocumentType {
   OTHER
 }
 
+// Utility / municipal bill categories for a Property. PROPERTY_TAX = Arnona,
+// HOA = Vaad Bayit (building committee).
+enum UtilityType {
+  PROPERTY_TAX
+  ELECTRICITY
+  WATER
+  HOA
+  GAS
+}
+
+// Utility-bill lifecycle. Mirrors PaymentStatus: PENDING/PAID are stored;
+// "overdue" is DERIVED at read time from dueDate, never persisted.
+enum UtilityBillStatus {
+  PENDING
+  PAID
+}
+
+// Physical condition of an inventory item.
+enum EquipmentCondition {
+  NEW
+  GOOD
+  FAIR
+  BROKEN
+}
+
+// Kind of guarantee/deposit held against a Property.
+enum GuaranteeType {
+  BANK_GUARANTEE
+  CASH_DEPOSIT
+  CHECK
+  PROMISSORY_NOTE
+  OTHER
+}
+
+// Guarantee/deposit lifecycle.
+enum GuaranteeStatus {
+  ACTIVE
+  RETURNED
+  EXPIRED
+  CLAIMED
+}
+
+// Miscellaneous (non-rent) expense categories for a Property.
+enum ExpenseCategory {
+  CLEANING
+  MAINTENANCE
+  PEST_CONTROL
+  OTHER
+}
+
 // ─── Company ─────────────────────────────────────────────
 
 model Company {
@@ -57,6 +107,12 @@ model Company {
   payments   Payment[]
   workers    Worker[]
   workerDocuments WorkerDocument[]
+  // Property-detail groups (tenant-isolated by companyId)
+  utilityBills UtilityBill[]
+  equipment    Equipment[]
+  guarantees   Guarantee[]
+  expenses     Expense[]
+  inspections  Inspection[]
 }
 
 // ─── User ────────────────────────────────────────────────
@@ -188,14 +244,21 @@ model Property {
   contractStart DateTime?
   contractEnd   DateTime?
   monthlyRent   Int       @default(0)
+  // Number of rooms. Nullable (no backfill) — additive, safe against the live DB.
+  rooms         Int?
   maxCapacity   Int       @default(1)
   total         Int       @default(0)
   notes         String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  payments Payment[]
-  workers  Worker[]
+  payments     Payment[]
+  workers      Worker[]
+  utilityBills UtilityBill[]
+  equipment    Equipment[]
+  guarantees   Guarantee[]
+  expenses     Expense[]
+  inspections  Inspection[]
 
   @@index([companyId])
 }
@@ -301,4 +364,106 @@ model WorkerDocument {
 
   @@index([companyId])
   @@index([workerId])
+}
+
+// ─── Property-detail data groups ─────────────────────────
+// Each model is a property-scoped sub-resource, tenant-isolated by companyId
+// (denormalized onto every row so repositories filter { companyId, propertyId }
+// without a join, exactly like Payment). Both FKs cascade-delete with their
+// parent. Money is Int (whole shekels), matching Payment/Property.monthlyRent.
+
+// Utility & municipal bill (Arnona, electricity, water, Vaad Bayit, gas).
+// "overdue" is derived at read time from dueDate — see UtilityBillStatus.
+model UtilityBill {
+  id         Int               @id @default(autoincrement())
+  companyId  Int
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId Int
+  property   Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  type       UtilityType
+  status     UtilityBillStatus @default(PENDING)
+  amount     Int
+  dueDate    DateTime
+  paidAt     DateTime?
+  notes      String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// An inventory item held at a property.
+model Equipment {
+  id           Int                @id @default(autoincrement())
+  companyId    Int
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId   Int
+  property     Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name         String
+  quantity     Int                @default(1)
+  condition    EquipmentCondition @default(GOOD)
+  serialNumber String?
+  notes        String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// A guarantee or deposit held against a property.
+model Guarantee {
+  id         Int             @id @default(autoincrement())
+  companyId  Int
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId Int
+  property   Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  type       GuaranteeType
+  amount     Int
+  bank       String?
+  expiryDate DateTime?
+  returnDate DateTime?
+  status     GuaranteeStatus @default(ACTIVE)
+  notes      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// A miscellaneous (non-rent) expense against a property.
+model Expense {
+  id         Int             @id @default(autoincrement())
+  companyId  Int
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId Int
+  property   Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  category   ExpenseCategory
+  amount     Int
+  date       DateTime
+  notes      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// A periodic inspection record for a property.
+model Inspection {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId         Int
+  property           Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  lastInspectionDate DateTime?
+  nextInspectionDate DateTime?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
 }
