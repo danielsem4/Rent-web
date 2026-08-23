@@ -2,7 +2,19 @@ import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useCountUp } from "@/hooks/common/useCountUp";
 import { cn } from "@/lib/utils";
+
+/** Per-domain accent. Drives the leading edge + tinted icon chip. */
+export type KpiAccent = "info" | "success" | "warning" | "primary" | "muted";
+
+const ACCENT: Record<KpiAccent, { edge: string; chip: string }> = {
+  info: { edge: "border-s-info", chip: "bg-info-bg text-info" },
+  success: { edge: "border-s-success", chip: "bg-success-bg text-success" },
+  warning: { edge: "border-s-warning", chip: "bg-warning-bg text-warning" },
+  primary: { edge: "border-s-primary", chip: "bg-primary/10 text-primary" },
+  muted: { edge: "border-s-border", chip: "bg-muted text-muted-foreground" },
+};
 
 interface KpiCardProps {
   /** Already-translated label. */
@@ -10,6 +22,8 @@ interface KpiCardProps {
   icon: LucideIcon;
   /** The metric value; ignored while loading / erroring / coming soon. */
   value?: number;
+  /** Domain accent color for the leading edge + icon chip. */
+  accent?: KpiAccent;
   /** When set (and not coming soon), the whole card links here. */
   to?: string;
   loading?: boolean;
@@ -20,14 +34,25 @@ interface KpiCardProps {
   comingSoonLabel?: string;
 }
 
+/** Renders the metric with a one-time count-up (reduced-motion safe). */
+function CountValue({ value }: { value: number }) {
+  const display = useCountUp(value);
+  return (
+    <span className="text-3xl font-semibold tabular-nums">
+      {display.toLocaleString()}
+    </span>
+  );
+}
+
 /**
  * A single dashboard KPI tile. Presentational only — the parent resolves labels
- * and passes query state. RTL-safe (logical flex flow, no left/right).
+ * and passes query state. RTL-safe (logical flex flow + `border-s` accent).
  */
 export default function KpiCard({
   title,
   icon: Icon,
   value,
+  accent = "muted",
   to,
   loading,
   error,
@@ -36,12 +61,14 @@ export default function KpiCard({
   comingSoonLabel,
 }: KpiCardProps) {
   const clickable = Boolean(to) && !comingSoon;
+  const tone = comingSoon ? ACCENT.muted : ACCENT[accent];
 
   const card = (
     <Card
+      interactive={clickable}
       className={cn(
-        "h-full gap-3 py-5 transition-colors",
-        clickable && "hover:border-primary hover:bg-accent/40",
+        "h-full gap-3 border-s-4 py-5",
+        tone.edge,
         comingSoon && "opacity-70",
       )}
     >
@@ -55,15 +82,14 @@ export default function KpiCard({
           ) : error ? (
             <span className="text-destructive text-sm">{errorLabel}</span>
           ) : (
-            <span className="text-3xl font-semibold tabular-nums">
-              {(value ?? 0).toLocaleString()}
-            </span>
+            <CountValue value={value ?? 0} />
           )}
         </div>
         <span
           className={cn(
-            "bg-accent text-foreground flex size-10 shrink-0 items-center justify-center rounded-lg",
-            comingSoon && "opacity-60",
+            "flex size-10 shrink-0 items-center justify-center rounded-lg",
+            tone.chip,
+            comingSoon && "opacity-70",
           )}
         >
           <Icon className="size-5" />

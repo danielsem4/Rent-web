@@ -181,6 +181,59 @@ describe('Integration · worker apartment assignment guard', () => {
 });
 
 // ===========================================================================
+// Occupancy — capacity guard ("property full") + Property.total sync
+// ===========================================================================
+describe('Integration · occupancy capacity guard + total sync', () => {
+  it('assigning a worker bumps Property.total to the live worker count', async () => {
+    const res = await request(app)
+      .post('/api/workers')
+      .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
+      .send({ nameHe: 'עובד', nameEn: 'Foxtrot', nationality: 'Nepal', propertyId: propAId });
+    expect(res.status).toBe(201);
+    const prop = await prisma.property.findUnique({ where: { id: propAId } });
+    expect(prop?.total).toBe(1);
+  });
+
+  it('blocks assignment when the property is at maxCapacity (409); count unchanged', async () => {
+    // propAId defaults to maxCapacity 1 — seat one worker to fill it.
+    const first = await request(app)
+      .post('/api/workers')
+      .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
+      .send({ nameHe: 'x', nameEn: 'Full1', nationality: 'Nepal', propertyId: propAId });
+    expect(first.status).toBe(201);
+
+    const res = await request(app)
+      .post('/api/workers')
+      .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
+      .send({ nameHe: 'y', nameEn: 'Full2', nationality: 'Nepal', propertyId: propAId });
+    expect(res.status).toBe(409);
+    expect(await prisma.worker.count({ where: { propertyId: propAId } })).toBe(1);
+  });
+
+  it('unassigning (propertyId: null) frees the slot and lowers Property.total', async () => {
+    await prisma.property.update({ where: { id: propAId }, data: { maxCapacity: 2 } });
+    await request(app)
+      .patch(`/api/workers/${workerAId}`)
+      .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
+      .send({ propertyId: propAId });
+    expect((await prisma.property.findUnique({ where: { id: propAId } }))?.total).toBe(1);
+
+    const res = await request(app)
+      .patch(`/api/workers/${workerAId}`)
+      .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
+      .send({ propertyId: null });
+    expect(res.status).toBe(200);
+    expect(res.body.worker.propertyId).toBeNull();
+    expect((await prisma.property.findUnique({ where: { id: propAId } }))?.total).toBe(0);
+  });
+});
+
+// ===========================================================================
 // Audit trail never contains PII values
 // ===========================================================================
 describe('Integration · worker audit trail', () => {

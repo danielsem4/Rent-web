@@ -22,7 +22,9 @@ const {
   create,
   updateMany,
   deleteMany,
+  count,
   propertyFindFirst,
+  propertyUpdateMany,
 } = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
   findMany: vi.fn(),
@@ -30,18 +32,24 @@ const {
   create: vi.fn(),
   updateMany: vi.fn(),
   deleteMany: vi.fn(),
+  count: vi.fn(),
   propertyFindFirst: vi.fn(),
+  propertyUpdateMany: vi.fn(),
 }));
 
 vi.mock('../src/lib/prisma', () => ({
   default: {
     user: { findUnique: userFindUnique },
-    worker: { findMany, findFirst, create, updateMany, deleteMany },
-    property: { findFirst: propertyFindFirst },
+    worker: { findMany, findFirst, create, updateMany, deleteMany, count },
+    property: { findFirst: propertyFindFirst, updateMany: propertyUpdateMany },
     // Worker delete lists document storage keys to clean up files; no docs in
     // these tests, so return an empty set.
     workerDocument: { findMany: vi.fn(async () => []) },
     auditLog: { create: vi.fn() },
+    // Occupancy sync runs its recompute inside a transaction; the callback form
+    // is all the service uses, so hand it a tx backed by the same mocks.
+    $transaction: async (cb: (tx: unknown) => unknown) =>
+      cb({ worker: { count }, property: { updateMany: propertyUpdateMany } }),
   },
 }));
 
@@ -187,10 +195,14 @@ deleteMany.mockImplementation(async ({ where }: { where: { id?: number; companyI
 });
 
 // Backs the apartment-assignment guard: PROP_A in Company A, PROP_B in Company B.
-const propertyRows = [
-  { id: PROP_A_ID, companyId: COMPANY_A },
-  { id: PROP_B_ID, companyId: COMPANY_B },
-];
+// `maxCapacity`/`total` back the occupancy guard + sync; reset per test.
+interface PropertyRow {
+  id: number;
+  companyId: number;
+  maxCapacity: number;
+  total: number;
+}
+let propertyRows: PropertyRow[] = [];
 propertyFindFirst.mockImplementation(
   async ({ where }: { where: { id?: number; companyId?: number } }) => {
     return (
@@ -200,6 +212,36 @@ propertyFindFirst.mockImplementation(
           (where.companyId === undefined || p.companyId === where.companyId),
       ) ?? null
     );
+  },
+);
+
+// worker.count backs both the capacity guard and the occupancy recompute.
+count.mockImplementation(
+  async ({ where }: { where: { propertyId?: number; companyId?: number } }) => {
+    return workers.filter(
+      (w) =>
+        (where.propertyId === undefined || w.propertyId === where.propertyId) &&
+        (where.companyId === undefined || w.companyId === where.companyId),
+    ).length;
+  },
+);
+
+// property.updateMany backs syncPropertyTotals writing `total`.
+propertyUpdateMany.mockImplementation(
+  async ({
+    where,
+    data,
+  }: {
+    where: { id?: number; companyId?: number };
+    data: { total?: number };
+  }) => {
+    const matches = propertyRows.filter(
+      (p) =>
+        (where.id === undefined || p.id === where.id) &&
+        (where.companyId === undefined || p.companyId === where.companyId),
+    );
+    for (const p of matches) Object.assign(p, data);
+    return { count: matches.length };
   },
 );
 
@@ -236,6 +278,10 @@ beforeEach(async () => {
   workers = [
     makeWorker({ id: WORKER_A_ID, companyId: COMPANY_A, nameEn: 'Alpha' }),
     makeWorker({ id: WORKER_B_ID, companyId: COMPANY_B, nameEn: 'Bravo' }),
+  ];
+  propertyRows = [
+    { id: PROP_A_ID, companyId: COMPANY_A, maxCapacity: 2, total: 0 },
+    { id: PROP_B_ID, companyId: COMPANY_B, maxCapacity: 2, total: 0 },
   ];
 });
 
@@ -444,5 +490,95 @@ describe('PATCH/DELETE /api/workers/:id — isolation', () => {
     expect(res.status).toBe(204);
     expect(workers.some((w) => w.id === WORKER_A_ID)).toBe(false);
     expect(auditEvents.some((e) => e.action === 'WORKER_DELETED')).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Occupancy — capacity guard ("property full") + total sync
+// ===========================================================================
+describe('Occupancy — capacity guard + total sync', () => {
+  const propA = () => propertyRows.find((p) => p.id === PROP_A_ID)!;
+
+  it('assigning a worker on create bumps the property total to the live count', async () => {
+    const res = await request(app)
+      .post('/api/workers')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ propertyId: PROP_A_ID }));
+    expect(res.status).toBe(201);
+    expect(propA().total).toBe(1);
+  });
+
+  it('rejects assigning to a FULL property on create (409, nothing persisted)', async () => {
+    propA().maxCapacity = 1;
+    workers.push(makeWorker({ id: 500, companyId: COMPANY_A, propertyId: PROP_A_ID }));
+    const before = workers.length;
+    const res = await request(app)
+      .post('/api/workers')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ propertyId: PROP_A_ID }));
+    expect(res.status).toBe(409);
+    expect(workers.length).toBe(before); // nothing persisted
+  });
+
+  it('rejects moving a worker into a FULL property on update (409, unchanged)', async () => {
+    propA().maxCapacity = 1;
+    workers.push(makeWorker({ id: 501, companyId: COMPANY_A, propertyId: PROP_A_ID }));
+    const res = await request(app)
+      .patch(`/api/workers/${WORKER_A_ID}`)
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send({ propertyId: PROP_A_ID });
+    expect(res.status).toBe(409);
+    expect(workers.find((w) => w.id === WORKER_A_ID)?.propertyId).toBeNull();
+  });
+
+  it('unassigning (propertyId: null) frees the slot and lowers the total', async () => {
+    // Seat WORKER_A in PROP_A first (total → 1).
+    await request(app)
+      .patch(`/api/workers/${WORKER_A_ID}`)
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send({ propertyId: PROP_A_ID });
+    expect(propA().total).toBe(1);
+
+    const res = await request(app)
+      .patch(`/api/workers/${WORKER_A_ID}`)
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send({ propertyId: null });
+    expect(res.status).toBe(200);
+    expect(res.body.worker.propertyId).toBeNull();
+    expect(propA().total).toBe(0);
+  });
+
+  it('deleting an assigned worker frees the slot and lowers the total', async () => {
+    // Seat WORKER_A in PROP_A first (total → 1).
+    await request(app)
+      .patch(`/api/workers/${WORKER_A_ID}`)
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send({ propertyId: PROP_A_ID });
+    expect(propA().total).toBe(1);
+
+    const res = await request(app)
+      .delete(`/api/workers/${WORKER_A_ID}`)
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN);
+    expect(res.status).toBe(204);
+    expect(workers.some((w) => w.id === WORKER_A_ID)).toBe(false);
+    expect(propA().total).toBe(0);
+  });
+
+  it('re-saving the SAME assignment is not blocked as full (no self-count)', async () => {
+    propA().maxCapacity = 1;
+    workers.find((w) => w.id === WORKER_A_ID)!.propertyId = PROP_A_ID; // sole occupant
+    const res = await request(app)
+      .patch(`/api/workers/${WORKER_A_ID}`)
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send({ propertyId: PROP_A_ID, nameEn: 'Renamed' });
+    expect(res.status).toBe(200);
   });
 });

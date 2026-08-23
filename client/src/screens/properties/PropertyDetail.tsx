@@ -4,6 +4,7 @@ import {
   Loader2,
   ArrowLeft,
   LayoutGrid,
+  Users,
   Receipt,
   Package,
   Banknote,
@@ -16,6 +17,7 @@ import { ROLES } from "@/common/types/role";
 import { useProperty } from "./hooks/queries/useProperties";
 import { PropertyHeader } from "./components/PropertyHeader";
 import { OverviewPanel } from "./components/overview/OverviewPanel";
+import { WorkersPanel } from "./components/workers/WorkersPanel";
 import { BillsPanel } from "./components/bills/BillsPanel";
 import { EquipmentPanel } from "./components/equipment/EquipmentPanel";
 import { FinancesPanel } from "./components/finances/FinancesPanel";
@@ -23,6 +25,7 @@ import { InspectionsPanel } from "./components/inspections/InspectionsPanel";
 
 const TABS = [
   { value: "overview", labelKey: "properties.tabs.overview", icon: LayoutGrid },
+  { value: "workers", labelKey: "properties.tabs.workers", icon: Users },
   { value: "bills", labelKey: "properties.tabs.bills", icon: Receipt },
   { value: "equipment", labelKey: "properties.tabs.equipment", icon: Package },
   { value: "finances", labelKey: "properties.tabs.finances", icon: Banknote },
@@ -90,6 +93,9 @@ export default function PropertyDetail() {
 
         <TabsContent value="overview">
           <OverviewPanel property={property} />
+        </TabsContent>
+        <TabsContent value="workers">
+          <WorkersPanel property={property} canWrite={canWrite} />
         </TabsContent>
         <TabsContent value="bills">
           <BillsPanel propertyId={property.id} />

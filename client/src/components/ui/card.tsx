@@ -2,12 +2,22 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+function Card({
+  className,
+  interactive,
+  ...props
+}: React.ComponentProps<"div"> & {
+  /** Adds a subtle hover lift (translate + deeper shadow). Opt-in — use for
+   *  clickable tiles / rows, not static forms or detail panels. */
+  interactive?: boolean;
+}) {
   return (
     <div
       data-slot="card"
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm",
+        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-card transition-all",
+        interactive &&
+          "hover:-translate-y-0.5 hover:shadow-card-hover cursor-pointer",
         className,
       )}
       {...props}

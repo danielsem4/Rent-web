@@ -27,8 +27,8 @@ export default function SidebarLogout() {
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button
-          variant="outline"
-          className="w-full justify-start border-destructive text-base text-destructive hover:bg-destructive/10 hover:text-destructive"
+          variant="ghost"
+          className="w-full justify-start text-base text-destructive hover:bg-destructive/10 hover:text-destructive"
         >
           <LogOut className="size-5" />
           {t("common.logout")}

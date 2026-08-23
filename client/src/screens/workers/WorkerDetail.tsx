@@ -240,7 +240,15 @@ export default function WorkerDetail() {
   const apartmentProp = worker?.propertyId
     ? (properties ?? []).find((x) => x.id === worker.propertyId)
     : undefined;
-  const apartment = apartmentProp ? `${apartmentProp.city}, ${apartmentProp.address}` : null;
+  // Clickable link through to the property when the worker is housed at one.
+  const apartment = apartmentProp ? (
+    <Link
+      to={`/properties/${apartmentProp.id}`}
+      className="text-primary hover:underline"
+    >
+      {`${apartmentProp.city}, ${apartmentProp.address}`}
+    </Link>
+  ) : null;
 
   const formatDate = (value: string | null | undefined) =>
     value ? new Date(value).toLocaleDateString(i18n.language) : "—";

@@ -24,7 +24,9 @@ export const workersApi = {
     return data.worker;
   },
 
-  async update(id: number, input: IWorkerInput): Promise<IWorker> {
+  // PATCH is a partial update server-side, so callers may send a subset of
+  // fields (e.g. just `{ propertyId }` to (un)assign a worker to a property).
+  async update(id: number, input: Partial<IWorkerInput>): Promise<IWorker> {
     const { data } = await api.patch<OneResponse>(`/workers/${id}`, input);
     return data.worker;
   },

@@ -82,6 +82,11 @@ export interface IWorkersRepository {
     data: UpdateWorkerData,
   ): Promise<WorkerRecord | null>;
   deleteInCompany(id: number, companyId: number): Promise<boolean>;
+  countByProperty(propertyId: number, companyId: number): Promise<number>;
+  syncPropertyTotals(
+    propertyIds: (number | null | undefined)[],
+    companyId: number,
+  ): Promise<void>;
 }
 
 /** Columns selected for the list projection — the encrypted `*Enc` columns are
@@ -204,5 +209,29 @@ export class WorkersRepository implements IWorkersRepository {
   async deleteInCompany(id: number, companyId: number): Promise<boolean> {
     const result = await prisma.worker.deleteMany({ where: { id, companyId } });
     return result.count > 0;
+  }
+
+  async countByProperty(propertyId: number, companyId: number): Promise<number> {
+    // Tenant-scoped occupant count — the authoritative "how full is it" number.
+    return prisma.worker.count({ where: { propertyId, companyId } });
+  }
+
+  async syncPropertyTotals(
+    propertyIds: (number | null | undefined)[],
+    companyId: number,
+  ): Promise<void> {
+    // Recompute `Property.total` from the live worker count for each affected
+    // property (source + destination on a move). Recompute-from-truth is
+    // idempotent, so it also self-heals any pre-existing drift. The property
+    // write stays tenant-scoped via `updateMany({ where: { id, companyId } })`,
+    // so a foreign-company id matches zero rows and is a no-op.
+    const ids = [...new Set(propertyIds.filter((id): id is number => typeof id === 'number'))];
+    if (ids.length === 0) return;
+    await prisma.$transaction(async (tx) => {
+      for (const id of ids) {
+        const total = await tx.worker.count({ where: { propertyId: id, companyId } });
+        await tx.property.updateMany({ where: { id, companyId }, data: { total } });
+      }
+    });
   }
 }

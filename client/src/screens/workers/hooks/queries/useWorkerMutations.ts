@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { workersApi } from "@/api/workersApi";
 import type { IWorkerInput } from "@/common/types/worker";
+import { propertiesKey } from "@/screens/properties/hooks/queries/useProperties";
 import { workersKey } from "./useWorkers";
 
 export function useCreateWorker() {
@@ -44,6 +45,9 @@ export function useDeleteWorker() {
     mutationFn: (id: number) => workersApi.remove(id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: workersKey });
+      // Deleting an assigned worker changes the server-computed property
+      // occupancy; refresh the properties list + every detail (prefix match).
+      void qc.invalidateQueries({ queryKey: propertiesKey });
       toast.success(t("workers.deleted"));
     },
     onError: () => toast.error(t("workers.deleteFailed")),
