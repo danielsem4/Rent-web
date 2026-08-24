@@ -9,9 +9,19 @@ import type {
 } from './properties.repository';
 import type { CreatePropertyDto, UpdatePropertyDto } from './properties.schema';
 
+/**
+ * Deletes the stored FILES for a property's gallery images (the DB rows cascade-
+ * delete with the property; the physical objects do not, so they are cleaned up
+ * here). Satisfied by `PropertyImageCleanup` in the images sub-module. Tenant-scoped.
+ */
+export interface IPropertyImageCleanup {
+  deleteFilesForProperty(propertyId: number, companyId: number): Promise<void>;
+}
+
 export class PropertiesService {
   constructor(
     private readonly repo: IPropertiesRepository,
+    private readonly images: IPropertyImageCleanup,
     private readonly audit: IAuditLogger,
   ) {}
 
@@ -88,6 +98,11 @@ export class PropertiesService {
   }
 
   async remove(id: number, currentUser: CurrentUser, context: AuditContext): Promise<void> {
+    // Delete the property's stored image FILES first (tenant-scoped — a
+    // foreign-company property matches no rows, so nothing is deleted). The DB
+    // image rows then cascade-delete with the property below.
+    await this.images.deleteFilesForProperty(id, currentUser.companyId);
+
     const deleted = await this.repo.deleteInCompany(id, currentUser.companyId);
     if (!deleted) {
       throw new AppError('Property not found', 404);

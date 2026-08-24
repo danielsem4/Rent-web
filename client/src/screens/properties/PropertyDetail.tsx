@@ -9,6 +9,7 @@ import {
   Package,
   Banknote,
   ClipboardCheck,
+  Images,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -22,9 +23,11 @@ import { BillsPanel } from "./components/bills/BillsPanel";
 import { EquipmentPanel } from "./components/equipment/EquipmentPanel";
 import { FinancesPanel } from "./components/finances/FinancesPanel";
 import { InspectionsPanel } from "./components/inspections/InspectionsPanel";
+import PropertyImages from "./components/gallery/PropertyImages";
 
 const TABS = [
   { value: "overview", labelKey: "properties.tabs.overview", icon: LayoutGrid },
+  { value: "gallery", labelKey: "properties.tabs.gallery", icon: Images },
   { value: "workers", labelKey: "properties.tabs.workers", icon: Users },
   { value: "bills", labelKey: "properties.tabs.bills", icon: Receipt },
   { value: "equipment", labelKey: "properties.tabs.equipment", icon: Package },
@@ -93,6 +96,9 @@ export default function PropertyDetail() {
 
         <TabsContent value="overview">
           <OverviewPanel property={property} />
+        </TabsContent>
+        <TabsContent value="gallery">
+          <PropertyImages propertyId={property.id} canWrite={canWrite} />
         </TabsContent>
         <TabsContent value="workers">
           <WorkersPanel property={property} canWrite={canWrite} />

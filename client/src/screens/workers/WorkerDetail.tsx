@@ -138,7 +138,7 @@ function Tabs({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="bg-muted flex gap-1 overflow-x-auto rounded-xl p-1">
+    <div className="bg-muted flex gap-1 overflow-x-auto rounded-xl border border-border p-1">
       {TABS.map(({ key, labelKey, icon: Icon }) => {
         const active = tab === key;
         return (
@@ -148,10 +148,10 @@ function Tabs({
             onClick={() => setTab(key)}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "focus-visible:ring-ring/50 flex shrink-0 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] sm:flex-1",
+              "focus-visible:ring-ring/50 flex shrink-0 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium whitespace-nowrap transition-all duration-200 outline-none focus-visible:ring-[3px] sm:flex-1",
               active
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-card text-primary font-semibold shadow-card"
+                : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
             )}
           >
             <Icon className="size-4" aria-hidden />

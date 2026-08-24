@@ -13,6 +13,14 @@ export const propertySchema = z.object({
   ownerPhone: z.string().optional(),
   contractStart: z.string().optional(),
   contractEnd: z.string().optional(),
+  // Optional day count. The form registers this with setValueAs so an empty input
+  // becomes undefined (not NaN); toPropertyInput then strips it before the API call.
+  advanceNoticeDays: z
+    .number({ message: "properties.errAdvanceNotice" })
+    .int("properties.errAdvanceNotice")
+    .min(0, "properties.errAdvanceNotice")
+    .max(365, "properties.errAdvanceNotice")
+    .optional(),
   // Number inputs are registered with valueAsNumber, so these receive real
   // numbers. Kept non-negative / positive to match the DB invariants.
   monthlyRent: z.number({ message: "properties.errRent" }).int().min(0, "properties.errRent"),

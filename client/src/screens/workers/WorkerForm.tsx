@@ -1,20 +1,27 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Loader2, UserRound, FileText, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Section } from "@/common/components/detail/Section";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/useAuthStore";
+import { ROLES } from "@/common/types/role";
 import type { WorkerLanguage } from "@/common/types/worker";
 import { useProperties } from "@/screens/properties/hooks/queries/useProperties";
 import { workerSchema, toWorkerInput } from "./schema/workerSchema";
 import type { WorkerFormValues } from "./schema/workerSchema";
+import type { StagedDocument } from "./lib/documentUpload";
 import { useWorker } from "./hooks/queries/useWorkers";
 import { useCreateWorker, useUpdateWorker } from "./hooks/queries/useWorkerMutations";
+import { useUploadWorkerDocuments } from "./hooks/queries/useWorkerDocumentMutations";
+import WorkerDocuments from "./components/WorkerDocuments";
+import WorkerDocumentDraft from "./components/WorkerDocumentDraft";
 
 /** ISO datetime → yyyy-mm-dd for a native date input (empty when absent). */
 function toDateInput(value: string | null | undefined): string {
@@ -56,9 +63,16 @@ export default function WorkerForm() {
 
   const { data: existing, isLoading: isLoadingExisting } = useWorker(id);
   const { data: properties } = useProperties();
+  // Uploads are gated to company managers (UX only; the server is the enforcement point).
+  const role = useAuthStore((s) => s.user?.role);
+  const canWrite = role === ROLES.COMPANY_MANAGER;
   const create = useCreateWorker();
   const update = useUpdateWorker(id ?? 0);
-  const saving = create.isPending || update.isPending;
+  const uploadDocs = useUploadWorkerDocuments();
+  // Documents staged in the browser while creating (no worker id yet).
+  const [staged, setStaged] = useState<StagedDocument[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const saving = create.isPending || update.isPending || uploading;
 
   const {
     register,
@@ -95,10 +109,26 @@ export default function WorkerForm() {
     }
   }, [existing, reset]);
 
-  const onSubmit = (values: WorkerFormValues) => {
+  const onSubmit = async (values: WorkerFormValues) => {
     const input = toWorkerInput(values);
-    if (isEdit) update.mutate(input);
-    else create.mutate(input);
+    if (isEdit) {
+      update.mutate(input);
+      return;
+    }
+    // Create, then upload any staged documents to the new worker's id.
+    try {
+      const worker = await create.mutateAsync(input);
+      if (staged.length > 0) {
+        setUploading(true);
+        const { failed } = await uploadDocs(worker.id, staged);
+        if (failed > 0) toast.error(t("workers.documents.someFailed", { count: failed }));
+      }
+      void navigate("/workers");
+    } catch {
+      // create failure is already surfaced by the mutation's onError toast.
+    } finally {
+      setUploading(false);
+    }
   };
 
   if (isEdit && isLoadingExisting) {
@@ -172,6 +202,14 @@ export default function WorkerForm() {
           {field("insuranceCoverageType", "workers.insuranceCoverageType")}
           {field("insuranceExpiry", "workers.insuranceExpiry", "date")}
         </Section>
+
+        {/* File uploads live on a saved worker (needs an id), so the uploader is
+            active in edit mode and shows a save-first hint when creating. */}
+        {id !== undefined ? (
+          <WorkerDocuments workerId={id} canWrite={canWrite} />
+        ) : (
+          <WorkerDocumentDraft staged={staged} onChange={setStaged} canWrite={canWrite} />
+        )}
 
         <Section icon={<Phone className="size-4" />} title={t("workers.formSecContact")}>
           {field("phone", "workers.phone")}

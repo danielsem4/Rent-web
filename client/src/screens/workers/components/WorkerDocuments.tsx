@@ -20,30 +20,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import type { WorkerDocumentType } from "@/common/types/workerDocument";
+import { DOC_TYPES, MAX_BYTES, ACCEPT, SELECT_CLASS, formatBytes } from "../lib/documentUpload";
 import { useWorkerDocuments } from "../hooks/queries/useWorkerDocuments";
 import {
   useUploadWorkerDocument,
   useDeleteWorkerDocument,
   useDownloadWorkerDocument,
 } from "../hooks/queries/useWorkerDocumentMutations";
-
-const DOC_TYPES: WorkerDocumentType[] = ["PASSPORT", "VISA", "INSURANCE", "OTHER"];
-const MAX_BYTES = 10 * 1024 * 1024;
-// Mirrors the server allow-list; the server (magic bytes) is the enforcement point.
-const ACCEPT = {
-  "application/pdf": [".pdf"],
-  "image/png": [".png"],
-  "image/jpeg": [".jpg", ".jpeg"],
-};
-
-const SELECT_CLASS =
-  "border-input bg-transparent h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export default function WorkerDocuments({
   workerId,

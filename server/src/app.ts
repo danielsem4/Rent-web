@@ -152,7 +152,7 @@ export function createApp(
   app.use('/api/auth', createAuthRouter({ auditLogger, mailer }));
   app.use('/api/auth', createAccountRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
   app.use('/api/users', createUsersRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
-  app.use('/api/properties', createPropertiesRouter({ auditLogger }));
+  app.use('/api/properties', createPropertiesRouter({ auditLogger, storage }));
   app.use('/api/workers', createWorkersRouter({ auditLogger, storage }));
   app.use('/api/payments', createPaymentsRouter());
 

@@ -4,6 +4,7 @@ import { authorize } from '../../shared/middlewares/authorize';
 import { validateRequest } from '../../shared/middlewares/validateRequest';
 import { Role } from '../../shared/constants/roles';
 import type { IAuditLogger } from '../../shared/audit/auditLogger';
+import type { IFileStorage } from '../../shared/storage/fileStorage';
 import { createPropertySchema, updatePropertySchema } from './properties.schema';
 import { PropertiesRepository } from './properties.repository';
 import { PropertiesService } from './properties.service';
@@ -14,9 +15,14 @@ import { createGuaranteesRouter } from './guarantees/guarantees.routes';
 import { createExpensesRouter } from './expenses/expenses.routes';
 import { createInspectionsRouter } from './inspections/inspections.routes';
 import { createPropertyPaymentsRouter } from './payments/property-payments.routes';
+import { PropertyImagesRepository } from './images/images.repository';
+import { PropertyImageCleanup } from './images/images.service';
+import { createPropertyImagesRouter } from './images/images.routes';
 
 export interface PropertiesRouterDeps {
   auditLogger: IAuditLogger;
+  /** Backend for encrypted image storage (local disk now, S3 later). */
+  storage: IFileStorage;
 }
 
 /**
@@ -32,9 +38,12 @@ export interface PropertiesRouterDeps {
  * enforced in the repository.
  */
 export function createPropertiesRouter(deps: PropertiesRouterDeps): Router {
-  // Manual dependency injection: repository → service → controller.
+  // Manual dependency injection: repository → service → controller. On property
+  // delete, the DB image rows cascade but the stored FILES do not — this cleanup
+  // removes them (tenant-scoped).
   const repository = new PropertiesRepository();
-  const service = new PropertiesService(repository, deps.auditLogger);
+  const imageCleanup = new PropertyImageCleanup(new PropertyImagesRepository(), deps.storage);
+  const service = new PropertiesService(repository, imageCleanup, deps.auditLogger);
   const controller = createPropertiesController(service);
 
   const router = Router();
@@ -59,5 +68,9 @@ export function createPropertiesRouter(deps: PropertiesRouterDeps): Router {
   router.use('/:propertyId/expenses', createExpensesRouter(sub));
   router.use('/:propertyId/inspections', createInspectionsRouter(sub));
   router.use('/:propertyId/payments', createPropertyPaymentsRouter());
+  router.use(
+    '/:propertyId/images',
+    createPropertyImagesRouter({ auditLogger: deps.auditLogger, storage: deps.storage }),
+  );
   return router;
 }

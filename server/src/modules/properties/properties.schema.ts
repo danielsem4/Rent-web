@@ -26,6 +26,12 @@ const monthlyRent = z.coerce.number().int('Monthly rent must be a whole number')
 const maxCapacity = z.coerce.number().int('Max capacity must be a whole number').min(1);
 const total = z.coerce.number().int('Occupants must be a whole number').min(0);
 const rooms = z.coerce.number().int('Rooms must be a whole number').min(0).max(100);
+// Advance notice period in days (0..365) a tenant must give before contract end.
+const advanceNoticeDays = z.coerce
+  .number()
+  .int('Advance notice must be a whole number of days')
+  .min(0)
+  .max(365);
 // Accept an ISO date string (what the client sends) and coerce to a Date for Prisma.
 const contractDate = z.coerce.date();
 
@@ -43,6 +49,7 @@ export const createPropertySchema = z.object({
   ownerPhone: optionalText.optional(),
   contractStart: contractDate.optional(),
   contractEnd: contractDate.optional(),
+  advanceNoticeDays: advanceNoticeDays.optional(),
   monthlyRent: monthlyRent.optional(),
   rooms: rooms.optional(),
   maxCapacity: maxCapacity.optional(),
@@ -66,6 +73,7 @@ export const updatePropertySchema = z
     ownerPhone: optionalText.optional(),
     contractStart: contractDate.optional(),
     contractEnd: contractDate.optional(),
+    advanceNoticeDays: advanceNoticeDays.optional(),
     monthlyRent: monthlyRent.optional(),
     rooms: rooms.optional(),
     maxCapacity: maxCapacity.optional(),

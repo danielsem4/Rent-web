@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { saveAs } from "file-saver";
 import { workerDocumentsApi } from "@/api/workerDocumentsApi";
 import type { WorkerDocumentType } from "@/common/types/workerDocument";
+import type { StagedDocument } from "../../lib/documentUpload";
 import { workerDocumentsKey } from "./useWorkerDocuments";
 
 export function useUploadWorkerDocument(workerId: number) {
@@ -31,6 +32,29 @@ export function useDeleteWorkerDocument(workerId: number) {
     },
     onError: () => toast.error(t("workers.documents.deleteFailed")),
   });
+}
+
+/**
+ * Batch-upload staged documents to a (just-created) worker. Unlike the per-worker
+ * hooks above, the id is a call argument because it isn't known until the worker
+ * is saved. Uploads sequentially, tolerates individual failures, and returns how
+ * many failed so the caller can surface a single toast. Keeps API access in the
+ * hooks layer (project layering rule).
+ */
+export function useUploadWorkerDocuments() {
+  const qc = useQueryClient();
+  return async (workerId: number, docs: StagedDocument[]): Promise<{ failed: number }> => {
+    let failed = 0;
+    for (const doc of docs) {
+      try {
+        await workerDocumentsApi.upload(workerId, doc.file, doc.docType);
+      } catch {
+        failed += 1;
+      }
+    }
+    void qc.invalidateQueries({ queryKey: workerDocumentsKey(workerId) });
+    return { failed };
+  };
 }
 
 /**

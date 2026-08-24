@@ -1,17 +1,24 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Loader2, Home, Wallet, StickyNote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Section } from "@/common/components/detail/Section";
+import { useAuthStore } from "@/store/useAuthStore";
+import { ROLES } from "@/common/types/role";
 import { propertySchema, toPropertyInput } from "./schema/propertySchema";
 import type { PropertyFormValues } from "./schema/propertySchema";
+import type { StagedImage } from "./lib/imageUpload";
 import { useProperty } from "./hooks/queries/useProperties";
 import { useCreateProperty, useUpdateProperty } from "./hooks/queries/usePropertyMutations";
+import { useUploadPropertyImages } from "./hooks/queries/usePropertyImageMutations";
+import PropertyImages from "./components/gallery/PropertyImages";
+import PropertyImageDraft from "./components/gallery/PropertyImageDraft";
 
 /** ISO datetime → yyyy-mm-dd for a native date input (empty when absent). */
 function toDateInput(value: string | null | undefined): string {
@@ -28,6 +35,7 @@ const EMPTY: PropertyFormValues = {
   ownerPhone: "",
   contractStart: "",
   contractEnd: "",
+  advanceNoticeDays: undefined,
   monthlyRent: 0,
   maxCapacity: 1,
   total: 0,
@@ -42,9 +50,16 @@ export default function PropertyForm() {
   const isEdit = id !== undefined;
 
   const { data: existing, isLoading: isLoadingExisting } = useProperty(id);
+  // Uploads are gated to company managers (UX only; the server is the enforcement point).
+  const role = useAuthStore((s) => s.user?.role);
+  const canWrite = role === ROLES.COMPANY_MANAGER;
   const create = useCreateProperty();
   const update = useUpdateProperty(id ?? 0);
-  const saving = create.isPending || update.isPending;
+  const uploadImages = useUploadPropertyImages();
+  // Images staged in the browser while creating (no property id yet).
+  const [staged, setStaged] = useState<StagedImage[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const saving = create.isPending || update.isPending || uploading;
 
   const {
     register,
@@ -69,6 +84,7 @@ export default function PropertyForm() {
         ownerPhone: existing.ownerPhone ?? "",
         contractStart: toDateInput(existing.contractStart),
         contractEnd: toDateInput(existing.contractEnd),
+        advanceNoticeDays: existing.advanceNoticeDays ?? undefined,
         monthlyRent: existing.monthlyRent,
         maxCapacity: existing.maxCapacity,
         total: existing.total,
@@ -77,10 +93,26 @@ export default function PropertyForm() {
     }
   }, [existing, reset]);
 
-  const onSubmit = (values: PropertyFormValues) => {
+  const onSubmit = async (values: PropertyFormValues) => {
     const input = toPropertyInput(values);
-    if (isEdit) update.mutate(input);
-    else create.mutate(input);
+    if (isEdit) {
+      update.mutate(input);
+      return;
+    }
+    // Create, then upload any staged images to the new property's id.
+    try {
+      const property = await create.mutateAsync(input);
+      if (staged.length > 0) {
+        setUploading(true);
+        const { failed } = await uploadImages(property.id, staged);
+        if (failed > 0) toast.error(t("properties.images.someFailed", { count: failed }));
+      }
+      void navigate("/properties");
+    } catch {
+      // create failure is already surfaced by the mutation's onError toast.
+    } finally {
+      setUploading(false);
+    }
   };
 
   if (isEdit && isLoadingExisting) {
@@ -134,7 +166,33 @@ export default function PropertyForm() {
           {field("total", "properties.total", "number")}
           {field("contractStart", "properties.contractStart", "date")}
           {field("contractEnd", "properties.contractEnd", "date")}
+          {/* Optional number: setValueAs maps an empty input to undefined (not NaN). */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="advanceNoticeDays">{t("properties.advanceNotice")}</Label>
+            <Input
+              id="advanceNoticeDays"
+              type="number"
+              aria-invalid={!!errors.advanceNoticeDays}
+              {...register("advanceNoticeDays", {
+                setValueAs: (v) => (v === "" || v == null ? undefined : Number(v)),
+              })}
+            />
+            {errors.advanceNoticeDays && (
+              <p className="text-destructive text-sm">
+                {t(errors.advanceNoticeDays?.message ?? "")}
+              </p>
+            )}
+          </div>
         </Section>
+
+        {/* Image uploads live on a saved property (needs an id), so the live
+            uploader is active in edit mode; when creating, images are staged in
+            the browser and uploaded right after the property is saved. */}
+        {id !== undefined ? (
+          <PropertyImages propertyId={id} canWrite={canWrite} />
+        ) : (
+          <PropertyImageDraft staged={staged} onChange={setStaged} canWrite={canWrite} />
+        )}
 
         <Section
           icon={<StickyNote className="size-4" />}

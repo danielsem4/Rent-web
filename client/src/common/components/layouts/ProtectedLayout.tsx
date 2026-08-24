@@ -19,6 +19,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  SidebarSeparator,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 
@@ -57,6 +58,7 @@ export default function ProtectedLayout() {
   const { t, i18n } = useTranslation();
   const { isLoading, isAuthenticated } = useInitAuth();
   const role = useAuthStore((s) => s.user?.role);
+  const userName = useAuthStore((s) => s.user?.name);
   const { pathname } = useLocation();
 
   if (isLoading) {
@@ -81,8 +83,13 @@ export default function ProtectedLayout() {
     <SidebarProvider>
       <Sidebar side={side}>
         <SidebarHeader>
-          <div className="px-2 py-1 text-xl font-semibold">rent+</div>
+          <div className="px-2 py-1.5">
+            <p className="truncate text-base font-semibold">
+              {t("common.welcome", { name: userName ?? "" })}
+            </p>
+          </div>
         </SidebarHeader>
+        <SidebarSeparator />
         <SidebarContent>
           <SidebarGroup>
             <SidebarGroupContent>

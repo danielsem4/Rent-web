@@ -13,19 +13,24 @@ import type { IAuditLogger, AuditEvent } from '../src/shared/audit/auditLogger';
 // like a tiny tenant-scoped store. `property.findMany` honors `select` so the
 // list projection's omission of `entryCode` is faithfully exercised.
 // ---------------------------------------------------------------------------
-const { userFindUnique, findMany, findFirst, create, updateMany, deleteMany } = vi.hoisted(() => ({
-  userFindUnique: vi.fn(),
-  findMany: vi.fn(),
-  findFirst: vi.fn(),
-  create: vi.fn(),
-  updateMany: vi.fn(),
-  deleteMany: vi.fn(),
-}));
+const { userFindUnique, findMany, findFirst, create, updateMany, deleteMany, imageFindMany } =
+  vi.hoisted(() => ({
+    userFindUnique: vi.fn(),
+    findMany: vi.fn(),
+    findFirst: vi.fn(),
+    create: vi.fn(),
+    updateMany: vi.fn(),
+    deleteMany: vi.fn(),
+    // Backs the property-image cleanup run during Property delete. No images in
+    // these CRUD tests, so it yields an empty key set (nothing to clean up).
+    imageFindMany: vi.fn(async () => []),
+  }));
 
 vi.mock('../src/lib/prisma', () => ({
   default: {
     user: { findUnique: userFindUnique },
     property: { findMany, findFirst, create, updateMany, deleteMany },
+    propertyImage: { findMany: imageFindMany },
     auditLog: { create: vi.fn() },
   },
 }));
@@ -70,6 +75,7 @@ interface PropRow {
   ownerPhone: string | null;
   contractStart: Date | null;
   contractEnd: Date | null;
+  advanceNoticeDays: number | null;
   monthlyRent: number;
   maxCapacity: number;
   total: number;
@@ -93,6 +99,7 @@ function makeProp(overrides: Partial<PropRow>): PropRow {
     ownerPhone: '050-0000000',
     contractStart: null,
     contractEnd: null,
+    advanceNoticeDays: null,
     monthlyRent: 5000,
     maxCapacity: 3,
     total: 1,
@@ -365,6 +372,27 @@ describe('POST /api/properties — create isolation', () => {
       .set('Cookie', managerCookie())
       .set('Origin', ORIGIN)
       .send(validCreateBody({ maxCapacity: 2, total: 5 }));
+    expect(res.status).toBe(400);
+    expect(properties.length).toBe(before); // nothing persisted
+  });
+
+  it('accepts advanceNoticeDays and persists it', async () => {
+    const res = await request(app)
+      .post('/api/properties')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ advanceNoticeDays: 60 }));
+    expect(res.status).toBe(201);
+    expect(res.body.property.advanceNoticeDays).toBe(60);
+  });
+
+  it('rejects a negative advanceNoticeDays (400)', async () => {
+    const before = properties.length;
+    const res = await request(app)
+      .post('/api/properties')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ advanceNoticeDays: -5 }));
     expect(res.status).toBe(400);
     expect(properties.length).toBe(before); // nothing persisted
   });

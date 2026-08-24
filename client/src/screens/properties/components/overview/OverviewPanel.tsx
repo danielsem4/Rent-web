@@ -37,6 +37,7 @@ export function OverviewPanel({ property }: { property: IProperty }) {
       <Section icon={<CalendarDays className="size-4" />} title={t("properties.sectionContract")}>
         <Field label={t("properties.contractStart")} value={formatDate(property.contractStart)} />
         <Field label={t("properties.contractEnd")} value={formatDate(property.contractEnd)} />
+        <Field label={t("properties.advanceNotice")} value={property.advanceNoticeDays ?? "—"} />
         <div className="sm:col-span-2">
           <Field label={t("properties.notes")} value={property.notes} />
         </div>

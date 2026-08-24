@@ -7,16 +7,16 @@ import type { IWorkerInput } from "@/common/types/worker";
 import { propertiesKey } from "@/screens/properties/hooks/queries/useProperties";
 import { workersKey } from "./useWorkers";
 
+// Navigation is intentionally NOT done here: the form awaits the created worker
+// (mutateAsync), uploads any staged documents to its new id, then navigates.
 export function useCreateWorker() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const { t } = useTranslation();
   return useMutation({
     mutationFn: (input: IWorkerInput) => workersApi.create(input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: workersKey });
       toast.success(t("workers.created"));
-      void navigate("/workers");
     },
     onError: () => toast.error(t("workers.saveFailed")),
   });
