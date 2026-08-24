@@ -4,6 +4,12 @@ const en = {
     loading: "Loading...",
     logout: "Log out",
     welcome: "Welcome, {{name}}",
+    search: "Search",
+    previous: "Previous",
+    next: "Next",
+    pageOf: "Page {{page}} of {{pages}}",
+    totalCount: "{{count}} total",
+    noResults: "No results match your search.",
   },
   theme: {
     toggle: "Toggle theme",
@@ -50,6 +56,7 @@ const en = {
   },
   employees: {
     title: "Employees",
+    subtitle: "View and manage all employees",
     name: "Name",
     email: "Email",
     role: "Role",
@@ -58,6 +65,8 @@ const en = {
     statusPending: "Pending",
     empty: "No employees yet.",
     loadFailed: "Could not load employees.",
+    searchPlaceholder: "Search by name, email or role…",
+    itemCount: "{{count}} employees",
     roles: {
       SUPER_ADMIN: "Super admin",
       COMPANY_MANAGER: "Manager",
@@ -85,7 +94,10 @@ const en = {
   },
   properties: {
     title: "Properties",
+    subtitle: "View and manage all properties",
     add: "Add property",
+    searchPlaceholder: "Search by city, address or owner…",
+    itemCount: "{{count}} properties",
     empty: "No properties yet.",
     loadFailed: "Could not load properties.",
     saveFailed: "Could not save the property.",
@@ -259,7 +271,10 @@ const en = {
   },
   workers: {
     title: "Foreign Workers",
+    subtitle: "View and manage all foreign workers",
     add: "Add worker",
+    searchPlaceholder: "Search by name, nationality or apartment…",
+    itemCount: "{{count}} workers",
     empty: "No workers yet.",
     loadFailed: "Could not load workers.",
     saveFailed: "Could not save the worker.",

@@ -6,6 +6,12 @@ const ar: TranslationSchema = {
     loading: "جارٍ التحميل...",
     logout: "تسجيل الخروج",
     welcome: "مرحبًا، {{name}}",
+    search: "بحث",
+    previous: "السابق",
+    next: "التالي",
+    pageOf: "صفحة {{page}} من {{pages}}",
+    totalCount: "{{count}} إجمالاً",
+    noResults: "لا توجد نتائج مطابقة لبحثك.",
   },
   theme: {
     toggle: "تبديل السمة",
@@ -52,6 +58,7 @@ const ar: TranslationSchema = {
   },
   employees: {
     title: "الموظفون",
+    subtitle: "عرض وإدارة جميع الموظفين",
     name: "الاسم",
     email: "البريد الإلكتروني",
     role: "الدور",
@@ -60,6 +67,8 @@ const ar: TranslationSchema = {
     statusPending: "معلّق",
     empty: "لا يوجد موظفون بعد.",
     loadFailed: "تعذّر تحميل الموظفين.",
+    searchPlaceholder: "ابحث بالاسم أو البريد الإلكتروني أو الدور…",
+    itemCount: "{{count}} موظفين",
     roles: {
       SUPER_ADMIN: "مدير عام",
       COMPANY_MANAGER: "مدير",
@@ -87,7 +96,10 @@ const ar: TranslationSchema = {
   },
   properties: {
     title: "العقارات",
+    subtitle: "عرض وإدارة جميع العقارات",
     add: "إضافة عقار",
+    searchPlaceholder: "ابحث بالمدينة أو العنوان أو المالك…",
+    itemCount: "{{count}} عقارات",
     empty: "لا توجد عقارات بعد.",
     loadFailed: "تعذّر تحميل العقارات.",
     saveFailed: "تعذّر حفظ العقار.",
@@ -261,7 +273,10 @@ const ar: TranslationSchema = {
   },
   workers: {
     title: "العمال الأجانب",
+    subtitle: "عرض وإدارة جميع العمال الأجانب",
     add: "إضافة عامل",
+    searchPlaceholder: "ابحث بالاسم أو الجنسية أو الشقة…",
+    itemCount: "{{count}} عمال",
     empty: "لا يوجد عمال بعد.",
     loadFailed: "تعذر تحميل العمال.",
     saveFailed: "تعذر حفظ العامل.",

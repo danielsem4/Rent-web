@@ -6,6 +6,12 @@ const ru: TranslationSchema = {
     loading: "Загрузка...",
     logout: "Выйти",
     welcome: "Добро пожаловать, {{name}}",
+    search: "Поиск",
+    previous: "Назад",
+    next: "Вперёд",
+    pageOf: "Страница {{page}} из {{pages}}",
+    totalCount: "Всего: {{count}}",
+    noResults: "Ничего не найдено по вашему запросу.",
   },
   theme: {
     toggle: "Переключить тему",
@@ -52,6 +58,7 @@ const ru: TranslationSchema = {
   },
   employees: {
     title: "Сотрудники",
+    subtitle: "Просмотр и управление всеми сотрудниками",
     name: "Имя",
     email: "Эл. почта",
     role: "Роль",
@@ -60,6 +67,8 @@ const ru: TranslationSchema = {
     statusPending: "Ожидает",
     empty: "Пока нет сотрудников.",
     loadFailed: "Не удалось загрузить сотрудников.",
+    searchPlaceholder: "Поиск по имени, эл. почте или роли…",
+    itemCount: "Сотрудников: {{count}}",
     roles: {
       SUPER_ADMIN: "Суперадмин",
       COMPANY_MANAGER: "Менеджер",
@@ -87,7 +96,10 @@ const ru: TranslationSchema = {
   },
   properties: {
     title: "Объекты",
+    subtitle: "Просмотр и управление всеми объектами",
     add: "Добавить объект",
+    searchPlaceholder: "Поиск по городу, адресу или владельцу…",
+    itemCount: "Объектов: {{count}}",
     empty: "Пока нет объектов.",
     loadFailed: "Не удалось загрузить объекты.",
     saveFailed: "Не удалось сохранить объект.",
@@ -261,7 +273,10 @@ const ru: TranslationSchema = {
   },
   workers: {
     title: "Иностранные работники",
+    subtitle: "Просмотр и управление всеми иностранными работниками",
     add: "Добавить работника",
+    searchPlaceholder: "Поиск по имени, гражданству или квартире…",
+    itemCount: "Работников: {{count}}",
     empty: "Пока нет работников.",
     loadFailed: "Не удалось загрузить работников.",
     saveFailed: "Не удалось сохранить работника.",

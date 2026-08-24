@@ -6,6 +6,12 @@ const he: TranslationSchema = {
     loading: "טוען...",
     logout: "התנתקות",
     welcome: "ברוך הבא, {{name}}",
+    search: "חיפוש",
+    previous: "הקודם",
+    next: "הבא",
+    pageOf: "עמוד {{page}} מתוך {{pages}}",
+    totalCount: "{{count}} סה\"כ",
+    noResults: "אין תוצאות התואמות לחיפוש.",
   },
   theme: {
     toggle: "החלפת ערכת נושא",
@@ -52,6 +58,7 @@ const he: TranslationSchema = {
   },
   employees: {
     title: "עובדים",
+    subtitle: "צפייה וניהול של כל העובדים",
     name: "שם",
     email: "אימייל",
     role: "תפקיד",
@@ -60,6 +67,8 @@ const he: TranslationSchema = {
     statusPending: "ממתין",
     empty: "אין עדיין עובדים.",
     loadFailed: "טעינת העובדים נכשלה.",
+    searchPlaceholder: "חיפוש לפי שם, אימייל או תפקיד…",
+    itemCount: "{{count}} עובדים",
     roles: {
       SUPER_ADMIN: "מנהל-על",
       COMPANY_MANAGER: "מנהל",
@@ -87,7 +96,10 @@ const he: TranslationSchema = {
   },
   properties: {
     title: "נכסים",
+    subtitle: "צפייה וניהול של כל הנכסים",
     add: "הוספת נכס",
+    searchPlaceholder: "חיפוש לפי עיר, כתובת או בעלים…",
+    itemCount: "{{count}} נכסים",
     empty: "אין עדיין נכסים.",
     loadFailed: "טעינת הנכסים נכשלה.",
     saveFailed: "שמירת הנכס נכשלה.",
@@ -261,7 +273,10 @@ const he: TranslationSchema = {
   },
   workers: {
     title: "עובדים זרים",
+    subtitle: "צפייה וניהול של כל העובדים הזרים",
     add: "הוסף עובד",
+    searchPlaceholder: "חיפוש לפי שם, לאום או דירה…",
+    itemCount: "{{count}} עובדים",
     empty: "אין עדיין עובדים.",
     loadFailed: "טעינת העובדים נכשלה.",
     saveFailed: "שמירת העובד נכשלה.",
