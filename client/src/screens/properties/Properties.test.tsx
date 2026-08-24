@@ -62,6 +62,12 @@ describe("Properties list", () => {
     expect(screen.getByText("Haifa")).toBeInTheDocument();
   });
 
+  it("shows each property's occupancy", () => {
+    h.list = { data: [row({ total: 2, maxCapacity: 5 })], isLoading: false, isError: false };
+    renderList();
+    expect(screen.getByText("2 / 5")).toBeInTheDocument();
+  });
+
   it("shows the empty state when there are no properties", () => {
     renderList();
     expect(screen.getByText("No properties yet.")).toBeInTheDocument();

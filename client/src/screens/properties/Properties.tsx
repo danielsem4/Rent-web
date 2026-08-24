@@ -4,6 +4,14 @@ import { Plus, Eye, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -60,82 +68,98 @@ export default function Properties() {
       )}
 
       {properties && properties.length > 0 && (
-        // Card grid: one column on phones, two from the small breakpoint — no
-        // horizontal scroll, unlike the previous wide table.
-        <div className="grid gap-3 sm:grid-cols-2">
-          {properties.map((p) => (
-            <Card key={p.id} className="flex flex-col">
-              <CardContent className="flex flex-1 flex-col gap-3 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold">{p.city}</p>
-                    <p className="text-muted-foreground truncate text-sm">{p.address}</p>
-                  </div>
-                  <OccupancyChip total={p.total} maxCapacity={p.maxCapacity} className="shrink-0" />
-                </div>
-
-                <dl className="mt-auto grid grid-cols-2 gap-2 text-sm">
-                  <div className="min-w-0">
-                    <dt className="text-muted-foreground text-xs">{t("properties.owner")}</dt>
-                    <dd className="truncate">{p.ownerName ?? "—"}</dd>
-                  </div>
-                  <div className="min-w-0 text-end">
-                    <dt className="text-muted-foreground text-xs">{t("properties.rent")}</dt>
-                    <dd className="tabular-nums font-medium">
+        <Card className="overflow-hidden">
+          {/* Table scrolls inside its own container on narrow screens — the page
+              itself never overflows sideways. */}
+          <CardContent className="overflow-x-auto p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("properties.city")}</TableHead>
+                  <TableHead>{t("properties.address")}</TableHead>
+                  <TableHead>{t("properties.owner")}</TableHead>
+                  <TableHead className="text-end">{t("properties.rent")}</TableHead>
+                  <TableHead className="text-end">{t("properties.occupancy")}</TableHead>
+                  <TableHead className="text-end">{t("properties.actions")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {properties.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">{p.city}</TableCell>
+                    <TableCell className="text-muted-foreground">{p.address}</TableCell>
+                    <TableCell>{p.ownerName ?? "—"}</TableCell>
+                    <TableCell className="text-end tabular-nums">
                       {p.monthlyRent.toLocaleString(i18n.language)}
-                    </dd>
-                  </div>
-                </dl>
-
-                <div className="flex justify-end gap-1 border-t pt-2">
-                  <Button asChild variant="ghost" size="icon" aria-label={t("properties.view")}>
-                    <Link to={`/properties/${p.id}`}>
-                      <Eye className="size-4" />
-                    </Link>
-                  </Button>
-                  {canWrite && (
-                    <>
-                      <Button asChild variant="ghost" size="icon" aria-label={t("properties.edit")}>
-                        <Link to={`/properties/${p.id}/edit`}>
-                          <Pencil className="size-4" />
-                        </Link>
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={t("properties.delete")}
-                            disabled={remove.isPending}
-                          >
-                            <Trash2 className="text-destructive size-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>{t("properties.delete")}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {t("properties.confirmDelete", { label: `${p.city}, ${p.address}` })}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>{t("properties.cancel")}</AlertDialogCancel>
-                            <AlertDialogAction
-                              variant="destructive"
-                              onClick={() => remove.mutate(p.id)}
+                    </TableCell>
+                    <TableCell className="text-end">
+                      <OccupancyChip total={p.total} maxCapacity={p.maxCapacity} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          asChild
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t("properties.view")}
+                        >
+                          <Link to={`/properties/${p.id}`}>
+                            <Eye className="size-4" />
+                          </Link>
+                        </Button>
+                        {canWrite && (
+                          <>
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="icon"
+                              aria-label={t("properties.edit")}
                             >
-                              {t("properties.delete")}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                              <Link to={`/properties/${p.id}/edit`}>
+                                <Pencil className="size-4" />
+                              </Link>
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={t("properties.delete")}
+                                  disabled={remove.isPending}
+                                >
+                                  <Trash2 className="text-destructive size-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>{t("properties.delete")}</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    {t("properties.confirmDelete", {
+                                      label: `${p.city}, ${p.address}`,
+                                    })}
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>{t("properties.cancel")}</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    variant="destructive"
+                                    onClick={() => remove.mutate(p.id)}
+                                  >
+                                    {t("properties.delete")}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

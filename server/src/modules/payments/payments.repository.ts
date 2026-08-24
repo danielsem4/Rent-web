@@ -6,6 +6,9 @@ export interface PaymentPropertySummary {
   id: number;
   city: string;
   address: string;
+  /** Current occupants and capacity — non-sensitive, drives the dashboard occupancy chip. */
+  total: number;
+  maxCapacity: number;
 }
 
 /**
@@ -39,7 +42,7 @@ const LIST_SELECT = {
   dueDate: true,
   paidAt: true,
   status: true,
-  property: { select: { id: true, city: true, address: true } },
+  property: { select: { id: true, city: true, address: true, total: true, maxCapacity: true } },
 } as const;
 
 export class PaymentsRepository implements IPaymentsRepository {

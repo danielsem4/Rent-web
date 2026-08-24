@@ -5,6 +5,9 @@ export interface IPaymentProperty {
   id: number;
   city: string;
   address: string;
+  /** Current occupants and capacity — drives the dashboard occupancy chip. */
+  total: number;
+  maxCapacity: number;
 }
 
 /**

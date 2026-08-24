@@ -3,11 +3,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
+import { Loader2, Home, Wallet, StickyNote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Section } from "@/common/components/detail/Section";
 import { propertySchema, toPropertyInput } from "./schema/propertySchema";
 import type { PropertyFormValues } from "./schema/propertySchema";
 import { useProperty } from "./hooks/queries/useProperties";
@@ -112,41 +112,48 @@ export default function PropertyForm() {
   );
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <Card>
-        <CardHeader>
-          <CardTitle>{isEdit ? t("properties.editTitle") : t("properties.newTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5" noValidate>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {field("city", "properties.city")}
-              {field("address", "properties.address")}
-              {field("ownerName", "properties.ownerName")}
-              {field("ownerPhone", "properties.ownerPhone")}
-              {field("monthlyRent", "properties.rent", "number")}
-              {field("maxCapacity", "properties.maxCapacity", "number")}
-              {field("total", "properties.total", "number")}
-              {field("entryCode", "properties.entryCode")}
-              {field("electricMeter", "properties.electricMeter")}
-              {field("waterMeter", "properties.waterMeter")}
-              {field("contractStart", "properties.contractStart", "date")}
-              {field("contractEnd", "properties.contractEnd", "date")}
-            </div>
-            {field("notes", "properties.notes")}
+    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      <h1 className="text-2xl font-semibold">
+        {isEdit ? t("properties.editTitle") : t("properties.newTitle")}
+      </h1>
 
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => void navigate("/properties")}>
-                {t("properties.cancel")}
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="size-4 animate-spin" />}
-                {t("properties.save")}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6" noValidate>
+        <Section icon={<Home className="size-4" />} title={t("properties.formSecDetails")}>
+          {field("city", "properties.city")}
+          {field("address", "properties.address")}
+          {field("ownerName", "properties.ownerName")}
+          {field("ownerPhone", "properties.ownerPhone")}
+          {field("entryCode", "properties.entryCode")}
+          {field("electricMeter", "properties.electricMeter")}
+          {field("waterMeter", "properties.waterMeter")}
+        </Section>
+
+        <Section icon={<Wallet className="size-4" />} title={t("properties.formSecFinances")}>
+          {field("monthlyRent", "properties.rent", "number")}
+          {field("maxCapacity", "properties.maxCapacity", "number")}
+          {field("total", "properties.total", "number")}
+          {field("contractStart", "properties.contractStart", "date")}
+          {field("contractEnd", "properties.contractEnd", "date")}
+        </Section>
+
+        <Section
+          icon={<StickyNote className="size-4" />}
+          title={t("properties.formSecNotes")}
+          bodyClassName="grid-cols-1"
+        >
+          {field("notes", "properties.notes")}
+        </Section>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => void navigate("/properties")}>
+            {t("properties.cancel")}
+          </Button>
+          <Button type="submit" disabled={saving}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            {t("properties.save")}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

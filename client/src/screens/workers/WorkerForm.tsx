@@ -3,11 +3,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
+import { Loader2, UserRound, FileText, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Section } from "@/common/components/detail/Section";
 import { cn } from "@/lib/utils";
 import type { WorkerLanguage } from "@/common/types/worker";
 import { useProperties } from "@/screens/properties/hooks/queries/useProperties";
@@ -123,70 +123,72 @@ export default function WorkerForm() {
   );
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <Card>
-        <CardHeader>
-          <CardTitle>{isEdit ? t("workers.editTitle") : t("workers.newTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5" noValidate>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {field("nameHe", "workers.nameHe")}
-              {field("nameEn", "workers.nameEn")}
-              {field("nationality", "workers.nationality")}
-              {field("entryDate", "workers.entryDate", "date")}
+    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      <h1 className="text-2xl font-semibold">
+        {isEdit ? t("workers.editTitle") : t("workers.newTitle")}
+      </h1>
 
-              {/* Preferred language */}
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="preferredLanguage">{t("workers.preferredLanguage")}</Label>
-                <select id="preferredLanguage" className={cn(SELECT_CLASS)} {...register("preferredLanguage")}>
-                  <option value="">{t("workers.notSet")}</option>
-                  {LANGUAGES.map((lng) => (
-                    <option key={lng} value={lng}>
-                      {t(`workers.languages.${lng}`)}
-                    </option>
-                  ))}
-                </select>
-              </div>
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6" noValidate>
+        <Section icon={<UserRound className="size-4" />} title={t("workers.formSecProfile")}>
+          {field("nameHe", "workers.nameHe")}
+          {field("nameEn", "workers.nameEn")}
+          {field("nationality", "workers.nationality")}
+          {field("entryDate", "workers.entryDate", "date")}
 
-              {/* Apartment assignment */}
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="propertyId">{t("workers.apartment")}</Label>
-                <select id="propertyId" className={cn(SELECT_CLASS)} {...register("propertyId")}>
-                  <option value="">{t("workers.notSet")}</option>
-                  {(properties ?? []).map((p) => (
-                    <option key={p.id} value={String(p.id)}>
-                      {p.city}, {p.address}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          {/* Preferred language */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="preferredLanguage">{t("workers.preferredLanguage")}</Label>
+            <select id="preferredLanguage" className={cn(SELECT_CLASS)} {...register("preferredLanguage")}>
+              <option value="">{t("workers.notSet")}</option>
+              {LANGUAGES.map((lng) => (
+                <option key={lng} value={lng}>
+                  {t(`workers.languages.${lng}`)}
+                </option>
+              ))}
+            </select>
+          </div>
 
-              {field("passportNumber", "workers.passportNumber")}
-              {field("passportExpiry", "workers.passportExpiry", "date")}
-              {field("visaType", "workers.visaType")}
-              {field("visaExpiry", "workers.visaExpiry", "date")}
-              {field("insuranceProvider", "workers.insuranceProvider")}
-              {field("insurancePolicyNumber", "workers.insurancePolicyNumber")}
-              {field("insuranceCoverageType", "workers.insuranceCoverageType")}
-              {field("insuranceExpiry", "workers.insuranceExpiry", "date")}
-              {field("phone", "workers.phone")}
-              {field("employer", "workers.employer")}
-            </div>
-            {field("notes", "workers.notes")}
+          {/* Apartment assignment */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="propertyId">{t("workers.apartment")}</Label>
+            <select id="propertyId" className={cn(SELECT_CLASS)} {...register("propertyId")}>
+              <option value="">{t("workers.notSet")}</option>
+              {(properties ?? []).map((p) => (
+                <option key={p.id} value={String(p.id)}>
+                  {p.city}, {p.address}
+                </option>
+              ))}
+            </select>
+          </div>
+        </Section>
 
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => void navigate("/workers")}>
-                {t("workers.cancel")}
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="size-4 animate-spin" />}
-                {t("workers.save")}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+        <Section icon={<FileText className="size-4" />} title={t("workers.formSecDocuments")}>
+          {field("passportNumber", "workers.passportNumber")}
+          {field("passportExpiry", "workers.passportExpiry", "date")}
+          {field("visaType", "workers.visaType")}
+          {field("visaExpiry", "workers.visaExpiry", "date")}
+          {field("insuranceProvider", "workers.insuranceProvider")}
+          {field("insurancePolicyNumber", "workers.insurancePolicyNumber")}
+          {field("insuranceCoverageType", "workers.insuranceCoverageType")}
+          {field("insuranceExpiry", "workers.insuranceExpiry", "date")}
+        </Section>
+
+        <Section icon={<Phone className="size-4" />} title={t("workers.formSecContact")}>
+          {field("phone", "workers.phone")}
+          {field("employer", "workers.employer")}
+          <div className="sm:col-span-2">{field("notes", "workers.notes")}</div>
+        </Section>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => void navigate("/workers")}>
+            {t("workers.cancel")}
+          </Button>
+          <Button type="submit" disabled={saving}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            {t("workers.save")}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

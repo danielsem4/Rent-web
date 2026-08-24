@@ -56,7 +56,7 @@ interface PaymentRow {
   dueDate: Date;
   paidAt: Date | null;
   status: 'PENDING' | 'PAID';
-  property: { id: number; city: string; address: string };
+  property: { id: number; city: string; address: string; total: number; maxCapacity: number };
 }
 let payments: PaymentRow[] = [];
 
@@ -69,7 +69,7 @@ function makePayment(overrides: Partial<PaymentRow>): PaymentRow {
     dueDate: new Date('2026-01-01T00:00:00.000Z'),
     paidAt: null,
     status: 'PENDING',
-    property: { id: 100, city: 'Tel Aviv', address: '1 Herzl St' },
+    property: { id: 100, city: 'Tel Aviv', address: '1 Herzl St', total: 1, maxCapacity: 3 },
     ...overrides,
   };
 }
@@ -118,8 +118,8 @@ beforeEach(async () => {
     await makeUserRow({ id: SUPER_ID, email: 'super@test.dev', name: 'Super Admin', role: Role.SUPER_ADMIN, companyId: PLATFORM }),
   ];
   payments = [
-    makePayment({ id: PAY_A_ID, companyId: COMPANY_A, property: { id: 100, city: 'Tel Aviv', address: '1 Herzl St' } }),
-    makePayment({ id: PAY_B_ID, companyId: COMPANY_B, property: { id: 200, city: 'Eilat', address: '9 Beach Rd' } }),
+    makePayment({ id: PAY_A_ID, companyId: COMPANY_A, property: { id: 100, city: 'Tel Aviv', address: '1 Herzl St', total: 1, maxCapacity: 3 } }),
+    makePayment({ id: PAY_B_ID, companyId: COMPANY_B, property: { id: 200, city: 'Eilat', address: '9 Beach Rd', total: 2, maxCapacity: 2 } }),
   ];
 });
 
@@ -177,6 +177,11 @@ describe('GET /api/payments — list isolation', () => {
 
   it('includes the owning property summary on each row', async () => {
     const res = await request(app).get('/api/payments').set('Cookie', managerCookie());
-    expect(res.body.payments[0].property).toMatchObject({ city: 'Tel Aviv', address: '1 Herzl St' });
+    expect(res.body.payments[0].property).toMatchObject({
+      city: 'Tel Aviv',
+      address: '1 Herzl St',
+      total: 1,
+      maxCapacity: 3,
+    });
   });
 });

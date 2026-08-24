@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/common/components/StatusBadge";
+import { OccupancyChip } from "@/screens/properties/components/Occupancy";
 import { usePayments } from "@/hooks/queries/usePayments";
 
 /** Midnight today — a payment due before this and still pending is overdue. */
@@ -67,6 +68,7 @@ export default function OutstandingPaymentsTable() {
                   <TableHead>{t("payments.property")}</TableHead>
                   <TableHead className="text-end">{t("payments.amount")}</TableHead>
                   <TableHead>{t("payments.dueDate")}</TableHead>
+                  <TableHead className="text-end">{t("properties.occupancy")}</TableHead>
                   <TableHead className="text-end">{t("payments.status")}</TableHead>
                   <TableHead className="text-end">{t("properties.actions")}</TableHead>
                 </TableRow>
@@ -94,6 +96,12 @@ export default function OutstandingPaymentsTable() {
                       </TableCell>
                       <TableCell className="tabular-nums">
                         {new Date(p.dueDate).toLocaleDateString(i18n.language)}
+                      </TableCell>
+                      <TableCell className="text-end">
+                        <OccupancyChip
+                          total={p.property.total}
+                          maxCapacity={p.property.maxCapacity}
+                        />
                       </TableCell>
                       <TableCell className="text-end">
                         <StatusBadge tone={overdue ? "danger" : "muted"}>

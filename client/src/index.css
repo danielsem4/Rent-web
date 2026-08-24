@@ -4,71 +4,74 @@
 @custom-variant dark (&:is(.dark *));
 
 /* =========================================================================
-   Design system — "Oasis"
-   Light mode = "Oasis Original" (brand green + brand orange)
-   Dark mode  = "Oasis Warm"     (warm teal + warm gold)
-   Values are the exact brand HEX codes; see comments for each role.
+   Design system — "Emerald / Zinc"
+   Light mode = emerald green + zinc-neutral canvas + warm-orange alerts
+   Dark mode  = mint green + charcoal/zinc surfaces + warm-orange alerts
+   Green = growth / financial health; orange is reserved for "action required"
+   (late payments); zinc/slate neutrals keep the canvas calm.
+   Note on contrast: solid brand fills use a deeper emerald (#047857) so white
+   text stays AA-safe; the vibrant #10b981 lives on the focus ring + charts.
    Tokens cascade to every component via the @theme inline map below.
    ========================================================================= */
 
 :root {
   --radius: 0.625rem;
 
-  --background: #f8fafc; /* very light cool gray */
-  --foreground: #1f2937; /* text primary — dark slate */
-  --card: #ffffff; /* surface */
-  --card-foreground: #1f2937;
+  --background: #f4f5f4; /* soft zinc-tinted off-white */
+  --foreground: #18181b; /* text primary — zinc-950 dark slate */
+  --card: #ffffff; /* surface — pure white */
+  --card-foreground: #18181b;
   --popover: #ffffff;
-  --popover-foreground: #1f2937;
+  --popover-foreground: #18181b;
 
-  --primary: #0a4b49; /* brand green */
+  --primary: #047857; /* emerald-700 — AA-safe fill + text-primary */
   --primary-foreground: #ffffff;
-  --primary-hover: #083a38; /* brand green hover */
+  --primary-hover: #065f46; /* emerald-800 hover */
 
-  --secondary: #e07a3c; /* brand orange (accent / secondary CTA) */
-  --secondary-foreground: #1f2937; /* dark text — AA-safe on orange */
-  --secondary-hover: #cc6a30; /* brand orange hover */
+  --secondary: #e4e4e7; /* zinc-200 — neutral secondary CTA */
+  --secondary-foreground: #18181b; /* dark text on light gray */
+  --secondary-hover: #d4d4d8; /* zinc-300 hover */
 
-  --muted: #f1f5f9; /* subtle neutral fill */
-  --muted-foreground: #4b5563; /* text secondary — gray */
-  --accent: #f1f5f9; /* neutral hover surface (ghost/menu/sidebar) */
-  --accent-foreground: #1f2937;
+  --muted: #f4f4f5; /* zinc-100 — subtle neutral fill */
+  --muted-foreground: #71717a; /* zinc-500 — text secondary */
+  --accent: #f4f4f5; /* zinc-100 — neutral hover surface */
+  --accent-foreground: #18181b;
 
-  --destructive: #ef4444; /* error / danger red */
+  --destructive: #ea580c; /* warm orange-red — error / late payments */
   --destructive-foreground: #ffffff;
 
-  --border: #e2e8f0; /* border / divider */
-  --input: #e2e8f0;
-  --ring: #0a4b49; /* focus ring = primary */
+  --border: #e4e4e7; /* zinc-200 border / divider */
+  --input: #e4e4e7;
+  --ring: #10b981; /* bright emerald accent (focus ring) */
 
   /* Semantic / status — solid color + contrast fg + subtle tint bg */
-  --success: #10b981;
+  --success: #059669; /* emerald-600 */
   --success-foreground: #ffffff;
   --success-bg: #d1fae5; /* light tint */
-  --warning: #f59e0b;
+  --warning: #f59e0b; /* amber — true warnings */
   --warning-foreground: #ffffff;
   --warning-bg: #fef3c7;
-  --danger: #ef4444;
+  --danger: #ea580c; /* warm orange — action required */
   --danger-foreground: #ffffff;
-  --danger-bg: #fee2e2;
-  --info: #3b82f6;
+  --danger-bg: #ffedd5; /* orange-100 tint */
+  --info: #3b82f6; /* blue — pending / informational */
   --info-foreground: #ffffff;
   --info-bg: #dbeafe;
 
-  --chart-1: #0a4b49; /* green */
-  --chart-2: #e07a3c; /* orange */
+  --chart-1: #10b981; /* bright emerald */
+  --chart-2: #71717a; /* zinc neutral */
   --chart-3: #3b82f6; /* blue */
   --chart-4: #f59e0b; /* amber */
-  --chart-5: #209a95; /* teal */
+  --chart-5: #047857; /* deep emerald */
 
   --sidebar: #ffffff;
-  --sidebar-foreground: #1f2937;
-  --sidebar-primary: #0a4b49;
+  --sidebar-foreground: #18181b;
+  --sidebar-primary: #047857;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f1f5f9;
-  --sidebar-accent-foreground: #1f2937;
-  --sidebar-border: #e2e8f0;
-  --sidebar-ring: #0a4b49;
+  --sidebar-accent: #f4f4f5;
+  --sidebar-accent-foreground: #18181b;
+  --sidebar-border: #e4e4e7;
+  --sidebar-ring: #10b981;
 
   /* Elevation — soft, layered surface shadow + a lifted state for hover.
      Cool slate tint keeps it calm/premium rather than a hard drop shadow. */
@@ -77,32 +80,32 @@
 }
 
 .dark {
-  --background: #121a19; /* very dark greyish-green */
-  --foreground: #f3f4f6; /* off-white */
-  --card: #1c2726; /* surface — slightly lighter dark green-gray */
-  --card-foreground: #f3f4f6;
-  --popover: #1c2726;
-  --popover-foreground: #f3f4f6;
+  --background: #18181b; /* deep charcoal (zinc-950) */
+  --foreground: #f4f5f4; /* off-white — avoids halation */
+  --card: #27272a; /* surface — elevated dark gray (zinc-800) */
+  --card-foreground: #f4f5f4;
+  --popover: #27272a;
+  --popover-foreground: #f4f5f4;
 
-  --primary: #209a95; /* warm teal */
-  --primary-foreground: #ffffff;
-  --primary-hover: #1c8581; /* warm teal hover */
+  --primary: #34d399; /* mint — pairs with dark text */
+  --primary-foreground: #18181b; /* dark text on mint — high contrast */
+  --primary-hover: #10b981; /* emerald hover */
 
-  --secondary: #f5b270; /* warm gold (accent / secondary CTA) */
-  --secondary-foreground: #121a19; /* dark text — AA-safe on gold */
-  --secondary-hover: #dfa063; /* warm gold hover */
+  --secondary: #3f3f46; /* zinc-700 — neutral secondary CTA */
+  --secondary-foreground: #f4f5f4;
+  --secondary-hover: #52525b; /* zinc-600 hover */
 
-  --muted: #223230; /* subtle neutral fill (derived from divider) */
-  --muted-foreground: #9ca3af; /* text secondary — light gray */
-  --accent: #2d3d3b; /* neutral hover surface */
-  --accent-foreground: #f3f4f6;
+  --muted: #27272a; /* subtle neutral fill */
+  --muted-foreground: #a1a1aa; /* zinc-400 — text secondary */
+  --accent: #3f3f46; /* zinc-700 — neutral hover surface */
+  --accent-foreground: #f4f5f4;
 
-  --destructive: #f87171; /* error / danger red */
-  --destructive-foreground: #121a19;
+  --destructive: #fdba74; /* warm light orange — error / late payments */
+  --destructive-foreground: #18181b; /* dark text on light orange */
 
-  --border: #2d3d3b; /* border / divider */
-  --input: #2d3d3b;
-  --ring: #209a95; /* focus ring = primary */
+  --border: #3f3f46; /* zinc-700 border / divider */
+  --input: #3f3f46;
+  --ring: #34d399; /* focus ring = primary */
 
   /* Semantic / status — brighter solids, deep tint backgrounds */
   --success: #34d399;
@@ -111,27 +114,27 @@
   --warning: #fbbf24;
   --warning-foreground: #2e1a02;
   --warning-bg: #78350f;
-  --danger: #f87171;
-  --danger-foreground: #2a0a0a;
-  --danger-bg: #7f1d1d;
+  --danger: #fdba74; /* warm orange — action required */
+  --danger-foreground: #18181b;
+  --danger-bg: #7c2d12; /* deep orange tint */
   --info: #60a5fa;
   --info-foreground: #0a1a2e;
   --info-bg: #1e3a8a;
 
-  --chart-1: #209a95; /* teal */
-  --chart-2: #f5b270; /* gold */
+  --chart-1: #34d399; /* mint */
+  --chart-2: #a1a1aa; /* zinc neutral */
   --chart-3: #60a5fa; /* blue */
   --chart-4: #fbbf24; /* amber */
-  --chart-5: #34d399; /* green */
+  --chart-5: #10b981; /* emerald */
 
-  --sidebar: #1c2726;
-  --sidebar-foreground: #f3f4f6;
-  --sidebar-primary: #209a95;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #2d3d3b;
-  --sidebar-accent-foreground: #f3f4f6;
-  --sidebar-border: #2d3d3b;
-  --sidebar-ring: #209a95;
+  --sidebar: #27272a;
+  --sidebar-foreground: #f4f5f4;
+  --sidebar-primary: #34d399;
+  --sidebar-primary-foreground: #18181b;
+  --sidebar-accent: #3f3f46;
+  --sidebar-accent-foreground: #f4f5f4;
+  --sidebar-border: #3f3f46;
+  --sidebar-ring: #34d399;
 
   /* Deeper, softer shadows read better against the dark surface. */
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 20px -8px rgb(0 0 0 / 0.5);

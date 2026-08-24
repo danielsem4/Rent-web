@@ -28,7 +28,7 @@ const pay = (over: Partial<IPaymentListItem> = {}): IPaymentListItem => ({
   dueDate: "2999-01-01T00:00:00.000Z", // far future → not overdue
   paidAt: null,
   status: "PENDING",
-  property: { id: 100, city: "Tel Aviv", address: "1 Herzl St" },
+  property: { id: 100, city: "Tel Aviv", address: "1 Herzl St", total: 1, maxCapacity: 3 },
   ...over,
 });
 
@@ -47,13 +47,25 @@ beforeEach(() => {
 describe("OutstandingPaymentsTable", () => {
   it("renders a row per outstanding payment with its property", () => {
     h.payments = {
-      data: [pay(), pay({ id: 2, property: { id: 200, city: "Haifa", address: "8 HaNassi Ave" } })],
+      data: [
+        pay(),
+        pay({
+          id: 2,
+          property: { id: 200, city: "Haifa", address: "8 HaNassi Ave", total: 2, maxCapacity: 4 },
+        }),
+      ],
       isLoading: false,
       isError: false,
     };
     renderTable();
     expect(screen.getByText("Tel Aviv")).toBeInTheDocument();
     expect(screen.getByText("8 HaNassi Ave")).toBeInTheDocument();
+  });
+
+  it("shows each payment's property occupancy", () => {
+    h.payments = { data: [pay()], isLoading: false, isError: false };
+    renderTable();
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
   });
 
   it("links the View (eye) action to the payment's property page", () => {
@@ -72,8 +84,15 @@ describe("OutstandingPaymentsTable", () => {
   it("excludes PAID payments (only outstanding are shown)", () => {
     h.payments = {
       data: [
-        pay({ id: 1, property: { id: 100, city: "Tel Aviv", address: "1 Herzl St" } }),
-        pay({ id: 2, status: "PAID", property: { id: 200, city: "Haifa", address: "8 HaNassi Ave" } }),
+        pay({
+          id: 1,
+          property: { id: 100, city: "Tel Aviv", address: "1 Herzl St", total: 1, maxCapacity: 3 },
+        }),
+        pay({
+          id: 2,
+          status: "PAID",
+          property: { id: 200, city: "Haifa", address: "8 HaNassi Ave", total: 2, maxCapacity: 4 },
+        }),
       ],
       isLoading: false,
       isError: false,
