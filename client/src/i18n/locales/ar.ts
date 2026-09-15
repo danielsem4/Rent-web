@@ -55,6 +55,10 @@ const ar: TranslationSchema = {
     expiringDocuments: "المستندات المنتهية",
     outstandingPayments: "المدفوعات المستحقة",
     pendingReservations: "الحجوزات المعلقة",
+    expiringVisas: "تأشيرات منتهية أو على وشك الانتهاء",
+    expiringVisasEmpty: "لا توجد تأشيرات منتهية أو على وشك الانتهاء قريبًا.",
+    endingContracts: "عقود منتهية أو على وشك الانتهاء",
+    endingContractsEmpty: "لا توجد عقود منتهية أو على وشك الانتهاء قريبًا.",
   },
   employees: {
     title: "الموظفون",

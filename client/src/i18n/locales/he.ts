@@ -55,6 +55,10 @@ const he: TranslationSchema = {
     expiringDocuments: "מסמכים שתוקפם פג",
     outstandingPayments: "תשלומים שלא שולמו",
     pendingReservations: "הזמנות ממתינות",
+    expiringVisas: "ויזות שתוקפן פג או עומד לפוג",
+    expiringVisasEmpty: "אין ויזות שתוקפן פג או עומד לפוג בקרוב.",
+    endingContracts: "חוזים שהסתיימו או מסתיימים בקרוב",
+    endingContractsEmpty: "אין חוזים שהסתיימו או מסתיימים בקרוב.",
   },
   employees: {
     title: "עובדים",

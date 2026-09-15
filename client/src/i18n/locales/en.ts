@@ -53,6 +53,10 @@ const en = {
     expiringDocuments: "Expiring Documents",
     outstandingPayments: "Outstanding Payments",
     pendingReservations: "Pending Reservations",
+    expiringVisas: "Expired or Expiring Visas",
+    expiringVisasEmpty: "No visas expired or expiring soon.",
+    endingContracts: "Ended or Ending Contracts",
+    endingContractsEmpty: "No contracts ended or ending soon.",
   },
   employees: {
     title: "Employees",

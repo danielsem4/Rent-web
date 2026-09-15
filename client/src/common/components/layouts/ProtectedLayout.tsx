@@ -108,7 +108,7 @@ export default function ProtectedLayout() {
                         size="lg"
                         isActive={isActive}
                         tooltip={t(item.labelKey)}
-                        className="gap-3 text-base [&>svg]:size-5"
+                        className="gap-3 text-base [&>svg]:size-5 hover:bg-foreground/5 hover:text-foreground data-[active=true]:bg-card data-[active=true]:text-primary data-[active=true]:font-semibold data-[active=true]:shadow-card"
                       >
                         <NavLink to={item.to} end={item.to === "/"}>
                           <Icon />

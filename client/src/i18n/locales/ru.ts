@@ -55,6 +55,10 @@ const ru: TranslationSchema = {
     expiringDocuments: "Истекающие документы",
     outstandingPayments: "Неоплаченные платежи",
     pendingReservations: "Ожидающие бронирования",
+    expiringVisas: "Истёкшие или истекающие визы",
+    expiringVisasEmpty: "Нет виз, истёкших или истекающих в ближайшее время.",
+    endingContracts: "Завершённые или завершающиеся договоры",
+    endingContractsEmpty: "Нет договоров, завершённых или завершающихся в ближайшее время.",
   },
   employees: {
     title: "Сотрудники",
