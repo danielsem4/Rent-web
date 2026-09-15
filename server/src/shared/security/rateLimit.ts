@@ -18,6 +18,7 @@
 import { rateLimit, ipKeyGenerator, type Options } from 'express-rate-limit';
 import type { Request, Response } from 'express';
 import type { RateLimitConfig } from '../config/env';
+import type { RateLimitPolicy } from '../config/rateLimit';
 
 /** Generic throttle message — identical regardless of account existence. */
 export const TOO_MANY_REQUESTS_MESSAGE = 'Too many requests, please try again later.';
@@ -180,5 +181,24 @@ export function createMfaResendRateLimiter(cfg: RateLimitConfig['mfaResend']) {
     windowMs: cfg.windowMs,
     limit: cfg.max,
     keyGenerator: ipKey,
+  });
+}
+
+/**
+ * Worker-document upload limiter (SECURITY_PRINCIPLES.md §14/§15) — mounted AFTER
+ * `authenticate`, so it keys on the authenticated user id (falling back to IP),
+ * bounding how fast one account can drive the expensive upload path (multipart
+ * parse + magic-byte sniff + encrypt + disk write). Window-based (no lockout).
+ * Takes a policy object directly from the centralized catalog.
+ */
+export function createUploadRateLimiter(policy: RateLimitPolicy) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: policy.windowMs,
+    limit: policy.max,
+    keyGenerator: (req: Request): string => {
+      const userId = req.currentUser?.userId;
+      return userId != null ? `user:${userId}` : ipKey(req);
+    },
   });
 }

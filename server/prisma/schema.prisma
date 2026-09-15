@@ -29,6 +29,71 @@ enum AccountTokenType {
   PASSWORD_RESET
 }
 
+// Payment lifecycle. "Outstanding" = PENDING (not yet paid); "overdue" is derived
+// at read time from dueDate, not stored.
+enum PaymentStatus {
+  PENDING
+  PAID
+}
+
+// Kind of identity document attached to a Worker. `OTHER` is a catch-all.
+enum WorkerDocumentType {
+  PASSPORT
+  VISA
+  INSURANCE
+  OTHER
+}
+
+// Utility / municipal bill categories for a Property. PROPERTY_TAX = Arnona,
+// HOA = Vaad Bayit (building committee).
+enum UtilityType {
+  PROPERTY_TAX
+  ELECTRICITY
+  WATER
+  HOA
+  GAS
+}
+
+// Utility-bill lifecycle. Mirrors PaymentStatus: PENDING/PAID are stored;
+// "overdue" is DERIVED at read time from dueDate, never persisted.
+enum UtilityBillStatus {
+  PENDING
+  PAID
+}
+
+// Physical condition of an inventory item.
+enum EquipmentCondition {
+  NEW
+  GOOD
+  FAIR
+  BROKEN
+}
+
+// Kind of guarantee/deposit held against a Property.
+enum GuaranteeType {
+  BANK_GUARANTEE
+  CASH_DEPOSIT
+  CHECK
+  PROMISSORY_NOTE
+  OTHER
+}
+
+// Guarantee/deposit lifecycle.
+enum GuaranteeStatus {
+  ACTIVE
+  RETURNED
+  EXPIRED
+  CLAIMED
+}
+
+// Miscellaneous (non-rent) expense categories for a Property.
+enum ExpenseCategory {
+  CLEANING
+  MAINTENANCE
+  PEST_CONTROL
+  OTHER
+}
+
 // ─── Company ─────────────────────────────────────────────
 
 model Company {
@@ -37,8 +102,18 @@ model Company {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users      User[]
-  properties Property[]
+  users           User[]
+  properties      Property[]
+  payments        Payment[]
+  workers         Worker[]
+  workerDocuments WorkerDocument[]
+  propertyImages  PropertyImage[]
+  // Property-detail groups (tenant-isolated by companyId)
+  utilityBills    UtilityBill[]
+  equipment       Equipment[]
+  guarantees      Guarantee[]
+  expenses        Expense[]
+  inspections     Inspection[]
 }
 
 // ─── User ────────────────────────────────────────────────
@@ -46,19 +121,19 @@ model Company {
 // every user belongs to a Company; SUPER_ADMIN is company-bound for now.
 
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         Role
-  companyId    Int
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id               Int       @id @default(autoincrement())
+  email            String    @unique
+  passwordHash     String
+  name             String
+  role             Role
+  companyId        Int
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   // Account status: a disabled user cannot authenticate and any already-issued
   // token is rejected on its next protected request (authenticate re-checks this).
-  isActive     Boolean  @default(true)
+  isActive         Boolean   @default(true)
   // Security/session version. Incrementing it invalidates every previously issued
   // JWT for this user (revoke-all). Tokens carry the version they were issued at.
-  tokenVersion Int      @default(0)
+  tokenVersion     Int       @default(0)
   // ─ Email OTP 2FA (SECURITY_PRINCIPLES.md §3/§24) ─
   // Mandatory for privileged roles (SUPER_ADMIN / COMPANY_MANAGER): on login a
   // single-use 6-digit code is emailed and its SHA-256 HASH stored here (never the
@@ -66,9 +141,9 @@ model User {
   // wrong tries for lockout. All three are cleared once a code is consumed.
   mfaCodeHash      String?
   mfaCodeExpiresAt DateTime?
-  mfaCodeAttempts  Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  mfaCodeAttempts  Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   accountTokens AccountToken[]
   refreshTokens RefreshToken[]
@@ -157,23 +232,270 @@ model AuditLog {
 // module/API/service/UI is built in this phase.
 
 model Property {
-  id            Int       @id @default(autoincrement())
-  companyId     Int
-  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  city          String
-  address       String
-  entryCode     String?
-  electricMeter String?
-  waterMeter    String?
-  ownerName     String?
-  ownerPhone    String?
-  contractStart DateTime?
-  contractEnd   DateTime?
-  monthlyRent   Int       @default(0)
-  capacity      Int       @default(1)
-  notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                Int       @id @default(autoincrement())
+  companyId         Int
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  city              String
+  address           String
+  entryCode         String?
+  electricMeter     String?
+  waterMeter        String?
+  ownerName         String?
+  ownerPhone        String?
+  contractStart     DateTime?
+  contractEnd       DateTime?
+  // Advance notice period (in days) a tenant must give before contract end to
+  // say whether they continue or leave. Nullable (no backfill) — additive, safe.
+  advanceNoticeDays Int?
+  monthlyRent       Int       @default(0)
+  // Number of rooms. Nullable (no backfill) — additive, safe against the live DB.
+  rooms             Int?
+  maxCapacity       Int       @default(1)
+  total             Int       @default(0)
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  payments     Payment[]
+  workers      Worker[]
+  images       PropertyImage[]
+  utilityBills UtilityBill[]
+  equipment    Equipment[]
+  guarantees   Guarantee[]
+  expenses     Expense[]
+  inspections  Inspection[]
 
   @@index([companyId])
+}
+
+// ─── Payment ─────────────────────────────────────────────
+// A rent payment owed for a Property, scoped to the owning Company (tenant
+// isolation via companyId, mirroring Property). PENDING rows are the
+// "outstanding payments" surfaced on the manager dashboard; PAID rows carry a
+// paidAt timestamp. Both companyId and propertyId cascade-delete with their parent.
+
+model Payment {
+  id         Int           @id @default(autoincrement())
+  companyId  Int
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId Int
+  property   Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  amount     Int
+  dueDate    DateTime
+  paidAt     DateTime?
+  status     PaymentStatus @default(PENDING)
+  notes      String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// ─── Worker ──────────────────────────────────────────────
+// A foreign-worker renter record MANAGED BY company staff (distinct from a login
+// account — see the RENTER Role, which is orthogonal). Tenant-isolated by
+// companyId, exactly like Property/Payment.
+//
+// Sensitive-PII (SECURITY_PRINCIPLES.md §7/§8): passport number and insurance
+// policy number are REGULATED identifiers, stored ENCRYPTED at rest (AES-256-GCM,
+// shared/utils/fieldEncryption). The *Enc columns hold ciphertext only; the
+// plaintext is decrypted for a single authorized detail read and is NEVER returned
+// in list responses, logs, URLs, or audit metadata. Expiry DATES stay plaintext —
+// they are not sensitive on their own and drive the 90/60/30-day expiry alerts
+// (derived at read time, mirroring the Payment "overdue" convention).
+//
+// `preferredLanguage` is reserved for the deferred AI-translation feature
+// (Thai/Hindi/Sinhala → Hebrew); no LLM pipeline is built yet.
+
+model Worker {
+  id                    Int       @id @default(autoincrement())
+  companyId             Int
+  company               Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Profile
+  nameHe                String
+  nameEn                String
+  nationality           String
+  entryDate             DateTime?
+  preferredLanguage     String? // 'th' | 'hi' | 'si' | 'he'
+  // Documents (number ENCRYPTED; expiry plaintext for alerts)
+  passportNumberEnc     String?
+  passportExpiry        DateTime?
+  visaType              String?
+  visaExpiry            DateTime?
+  // Medical insurance (policy number ENCRYPTED; expiry plaintext)
+  insuranceProvider     String?
+  insurancePolicyNumEnc String?
+  insuranceCoverageType String?
+  insuranceExpiry       DateTime?
+  // Contact + apartment assignment
+  phone                 String?
+  employer              String?
+  propertyId            Int?
+  property              Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  notes                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  documents WorkerDocument[]
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// ─── WorkerDocument ──────────────────────────────────────
+// An identity document (passport/visa/insurance scan) attached to a Worker.
+// Sensitive-PII (SECURITY_PRINCIPLES.md §7/§8/§16): the FILE BYTES are the
+// regulated data (a passport scan is the passport) and are stored ENCRYPTED at
+// rest by the storage backend (AES-256-GCM, shared/storage/localFileStorage).
+// This table holds only METADATA — never the bytes. `storageKey` is a
+// server-generated UUID (never a client filename → no path traversal);
+// `originalName` is display-only and treated as PII (never logged/audited).
+// Tenant-isolated by companyId, exactly like Worker/Property.
+
+model WorkerDocument {
+  id           Int                @id @default(autoincrement())
+  companyId    Int
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  workerId     Int
+  worker       Worker             @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  docType      WorkerDocumentType
+  originalName String
+  storageKey   String
+  mimeType     String
+  size         Int
+  checksum     String
+  createdAt    DateTime           @default(now())
+
+  @@index([companyId])
+  @@index([workerId])
+}
+
+// ─── PropertyImage ───────────────────────────────────────
+// A photo attached to a Property (gallery). Mirrors WorkerDocument: the FILE
+// BYTES are stored ENCRYPTED at rest by the storage backend (AES-256-GCM,
+// shared/storage/localFileStorage) and this table holds only METADATA — never
+// the bytes. `storageKey` is a server-generated UUID (never a client filename →
+// no path traversal); `originalName` is display-only. Photos are not regulated
+// PII like passport scans, but the same hardened storage seam + tenant isolation
+// (by companyId) apply. Only image types are accepted (jpeg/png/webp), enforced
+// by a magic-byte sniff in the service — the browser MIME is never trusted.
+
+model PropertyImage {
+  id           Int      @id @default(autoincrement())
+  companyId    Int
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId   Int
+  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  originalName String
+  storageKey   String
+  mimeType     String
+  size         Int
+  checksum     String
+  createdAt    DateTime @default(now())
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// ─── Property-detail data groups ─────────────────────────
+// Each model is a property-scoped sub-resource, tenant-isolated by companyId
+// (denormalized onto every row so repositories filter { companyId, propertyId }
+// without a join, exactly like Payment). Both FKs cascade-delete with their
+// parent. Money is Int (whole shekels), matching Payment/Property.monthlyRent.
+
+// Utility & municipal bill (Arnona, electricity, water, Vaad Bayit, gas).
+// "overdue" is derived at read time from dueDate — see UtilityBillStatus.
+model UtilityBill {
+  id         Int               @id @default(autoincrement())
+  companyId  Int
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId Int
+  property   Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  type       UtilityType
+  status     UtilityBillStatus @default(PENDING)
+  amount     Int
+  dueDate    DateTime
+  paidAt     DateTime?
+  notes      String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// An inventory item held at a property.
+model Equipment {
+  id           Int                @id @default(autoincrement())
+  companyId    Int
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId   Int
+  property     Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name         String
+  quantity     Int                @default(1)
+  condition    EquipmentCondition @default(GOOD)
+  serialNumber String?
+  notes        String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// A guarantee or deposit held against a property.
+model Guarantee {
+  id         Int             @id @default(autoincrement())
+  companyId  Int
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId Int
+  property   Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  type       GuaranteeType
+  amount     Int
+  bank       String?
+  expiryDate DateTime?
+  returnDate DateTime?
+  status     GuaranteeStatus @default(ACTIVE)
+  notes      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// A miscellaneous (non-rent) expense against a property.
+model Expense {
+  id         Int             @id @default(autoincrement())
+  companyId  Int
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId Int
+  property   Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  category   ExpenseCategory
+  amount     Int
+  date       DateTime
+  notes      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+// A periodic inspection record for a property.
+model Inspection {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  propertyId         Int
+  property           Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  lastInspectionDate DateTime?
+  nextInspectionDate DateTime?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([propertyId])
 }

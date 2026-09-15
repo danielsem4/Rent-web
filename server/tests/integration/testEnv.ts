@@ -26,6 +26,14 @@ if (!process.env['JWT_SECRET']) {
   process.env['JWT_SECRET'] = 'integration-test-secret';
 }
 
+// Field-level PII encryption (workers passport / insurance numbers). The
+// integration suite exercises the REAL AES-256-GCM cipher against PostgreSQL, so a
+// valid 64-hex key must be present. A fixed test key keeps runs deterministic.
+if (!process.env['FIELD_ENCRYPTION_KEY']) {
+  process.env['FIELD_ENCRYPTION_KEY'] =
+    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+}
+
 // Silence structured operational logs so the suite output stays readable. Audit
 // records still go to the real DB (that is what these tests assert on); this only
 // suppresses the operational http_request/error lines.

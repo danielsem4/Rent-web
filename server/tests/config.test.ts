@@ -3,9 +3,11 @@ import { loadConfig, ConfigError } from '../src/shared/config/env';
 
 // A configuration that is valid for production, used as a baseline to mutate.
 const STRONG_SECRET = 'x7Kd9Qp2Rm5Tn8Vb1Wc4Ye6Zg0Hj3Lo9Su2Ad5Fh8'; // 40+ chars, not a placeholder
+const STRONG_FIELD_KEY = 'f'.repeat(64); // 64 hex chars = 32 bytes
 const validProd = (): NodeJS.ProcessEnv => ({
   NODE_ENV: 'production',
   JWT_SECRET: STRONG_SECRET,
+  FIELD_ENCRYPTION_KEY: STRONG_FIELD_KEY,
   DATABASE_URL: 'postgresql://user:pass@db.internal:5432/rentplus',
   CLIENT_URL: 'https://app.rentplus.example',
   PORT: '5001',
@@ -42,6 +44,23 @@ describe('loadConfig — production fail-fast', () => {
       // The message must name the variable but must NOT echo the secret value.
       expect((err as Error).message).toContain('JWT_SECRET');
       expect((err as Error).message).not.toContain('change-me-in-production');
+    }
+  });
+
+  it('throws when FIELD_ENCRYPTION_KEY is missing in production (naming the variable)', () => {
+    const env = validProd();
+    delete env['FIELD_ENCRYPTION_KEY'];
+    expect(() => loadConfig(env)).toThrow(ConfigError);
+    expect(() => loadConfig(env)).toThrow(/FIELD_ENCRYPTION_KEY/);
+  });
+
+  it('throws when FIELD_ENCRYPTION_KEY is not 64 hex chars (never echoing the value)', () => {
+    const env = { ...validProd(), FIELD_ENCRYPTION_KEY: 'zz-not-hex-and-too-short' };
+    expect(() => loadConfig(env)).toThrow(/FIELD_ENCRYPTION_KEY/);
+    try {
+      loadConfig(env);
+    } catch (err) {
+      expect((err as Error).message).not.toContain('zz-not-hex-and-too-short');
     }
   });
 

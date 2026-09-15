@@ -70,6 +70,21 @@ export interface AppConfig {
   isProduction: boolean;
   port: number;
   jwtSecret: string;
+  /**
+   * AES-256-GCM key (64 hex chars) for field-level encryption of regulated PII
+   * — passport / insurance-policy numbers (SECURITY_PRINCIPLES.md §8). Required
+   * in production; may be absent in dev/test (the mocked unit suite never
+   * exercises the cipher). `shared/utils/fieldEncryption` re-validates it at call
+   * time and fails closed if unusable.
+   */
+  fieldEncryptionKey: string | undefined;
+  /**
+   * Base directory for locally-stored (encrypted) uploaded files — worker
+   * identity documents (SECURITY_PRINCIPLES.md §16). Must be a private path
+   * OUTSIDE any web-served directory. Defaults to `./uploads/worker-documents`.
+   * A future S3 backend makes this unused.
+   */
+  fileStorageDir: string;
   databaseUrl: string | undefined;
   clientUrl: string | undefined;
   /**
@@ -139,6 +154,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const isProduction = nodeEnv === 'production';
 
   const jwtSecret = env['JWT_SECRET'];
+  const fieldEncryptionKey = env['FIELD_ENCRYPTION_KEY'];
+  const fileStorageDir = env['FILE_STORAGE_DIR']?.trim() || './uploads/worker-documents';
   const databaseUrl = env['DATABASE_URL'];
   const clientUrl = env['CLIENT_URL'];
   const rawPort = env['PORT'];
@@ -155,6 +172,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (isPlaceholder(jwtSecret)) {
       errors.push('JWT_SECRET is a known placeholder/insecure value and must be replaced');
     }
+  }
+
+  // FIELD_ENCRYPTION_KEY — AES-256-GCM key for regulated-PII field encryption
+  // (§8). Must be exactly 64 hex chars (32 bytes) when present. Required in
+  // production; optional in dev/test (fail closed on a malformed value either way,
+  // rather than silently encrypting with an invalid key). Never echo the value.
+  if (fieldEncryptionKey !== undefined && fieldEncryptionKey !== '') {
+    if (!/^[0-9a-fA-F]{64}$/.test(fieldEncryptionKey)) {
+      errors.push('FIELD_ENCRYPTION_KEY must be 64 hex characters (32 bytes)');
+    }
+  } else if (isProduction) {
+    errors.push('FIELD_ENCRYPTION_KEY is required in production');
   }
 
   // Production-only requirements for critical infrastructure/config.
@@ -269,6 +298,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port,
     // Presence guaranteed above (JWT_SECRET) / allowed-absent in dev.
     jwtSecret: jwtSecret as string,
+    fieldEncryptionKey: fieldEncryptionKey || undefined,
+    fileStorageDir,
     databaseUrl,
     clientUrl,
     smtp,

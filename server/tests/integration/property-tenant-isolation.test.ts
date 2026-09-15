@@ -148,6 +148,19 @@ describe('Integration · property write isolation', () => {
     expect(await prisma.property.findUnique({ where: { id: propBId } })).not.toBeNull();
   });
 
+  it('accepts and returns the new rooms field, still forcing companyId', async () => {
+    const res = await request(app)
+      .post('/api/properties')
+      .set('Cookie', managerA)
+      .set('Origin', ORIGIN)
+      .send({ city: 'Holon', address: '5 Oak St', rooms: 4, companyId: t.companyB });
+    expect(res.status).toBe(201);
+    expect(res.body.property.rooms).toBe(4);
+    const row = await prisma.property.findUnique({ where: { id: res.body.property.id } });
+    expect(row?.rooms).toBe(4);
+    expect(row?.companyId).toBe(t.companyA);
+  });
+
   it('can delete a Company A property (204); row gone from PostgreSQL', async () => {
     const res = await request(app)
       .delete(`/api/properties/${propAId}`)

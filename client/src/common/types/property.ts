@@ -15,8 +15,15 @@ export interface IProperty {
   ownerPhone?: string | null;
   contractStart?: string | null;
   contractEnd?: string | null;
+  /** Advance notice period (in days) required before the contract end. */
+  advanceNoticeDays?: number | null;
   monthlyRent: number;
-  capacity: number;
+  /** Number of rooms in the apartment. Optional until the backend field lands. */
+  rooms?: number | null;
+  /** Maximum number of occupants the property can hold. */
+  maxCapacity: number;
+  /** Number of occupants currently living in the property. */
+  total: number;
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -36,7 +43,10 @@ export interface IPropertyInput {
   ownerPhone?: string;
   contractStart?: string;
   contractEnd?: string;
+  advanceNoticeDays?: number;
   monthlyRent?: number;
-  capacity?: number;
+  rooms?: number;
+  maxCapacity?: number;
+  total?: number;
   notes?: string;
 }

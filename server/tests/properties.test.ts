@@ -13,19 +13,24 @@ import type { IAuditLogger, AuditEvent } from '../src/shared/audit/auditLogger';
 // like a tiny tenant-scoped store. `property.findMany` honors `select` so the
 // list projection's omission of `entryCode` is faithfully exercised.
 // ---------------------------------------------------------------------------
-const { userFindUnique, findMany, findFirst, create, updateMany, deleteMany } = vi.hoisted(() => ({
-  userFindUnique: vi.fn(),
-  findMany: vi.fn(),
-  findFirst: vi.fn(),
-  create: vi.fn(),
-  updateMany: vi.fn(),
-  deleteMany: vi.fn(),
-}));
+const { userFindUnique, findMany, findFirst, create, updateMany, deleteMany, imageFindMany } =
+  vi.hoisted(() => ({
+    userFindUnique: vi.fn(),
+    findMany: vi.fn(),
+    findFirst: vi.fn(),
+    create: vi.fn(),
+    updateMany: vi.fn(),
+    deleteMany: vi.fn(),
+    // Backs the property-image cleanup run during Property delete. No images in
+    // these CRUD tests, so it yields an empty key set (nothing to clean up).
+    imageFindMany: vi.fn(async () => []),
+  }));
 
 vi.mock('../src/lib/prisma', () => ({
   default: {
     user: { findUnique: userFindUnique },
     property: { findMany, findFirst, create, updateMany, deleteMany },
+    propertyImage: { findMany: imageFindMany },
     auditLog: { create: vi.fn() },
   },
 }));
@@ -70,8 +75,10 @@ interface PropRow {
   ownerPhone: string | null;
   contractStart: Date | null;
   contractEnd: Date | null;
+  advanceNoticeDays: number | null;
   monthlyRent: number;
-  capacity: number;
+  maxCapacity: number;
+  total: number;
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -92,8 +99,10 @@ function makeProp(overrides: Partial<PropRow>): PropRow {
     ownerPhone: '050-0000000',
     contractStart: null,
     contractEnd: null,
+    advanceNoticeDays: null,
     monthlyRent: 5000,
-    capacity: 3,
+    maxCapacity: 3,
+    total: 1,
     notes: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -185,7 +194,8 @@ const validCreateBody = (overrides: Record<string, unknown> = {}) => ({
   address: '5 Ben Gurion Ave',
   entryCode: '9999',
   monthlyRent: 4200,
-  capacity: 2,
+  maxCapacity: 4,
+  total: 2,
   ...overrides,
 });
 
@@ -354,6 +364,38 @@ describe('POST /api/properties — create isolation', () => {
     expect(JSON.stringify(created?.metadata)).not.toContain('SUPER-SECRET-CODE');
     expect((created?.metadata as { fields?: string[] })?.fields).toContain('entryCode');
   });
+
+  it('rejects total exceeding maxCapacity (400, occupancy invariant)', async () => {
+    const before = properties.length;
+    const res = await request(app)
+      .post('/api/properties')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ maxCapacity: 2, total: 5 }));
+    expect(res.status).toBe(400);
+    expect(properties.length).toBe(before); // nothing persisted
+  });
+
+  it('accepts advanceNoticeDays and persists it', async () => {
+    const res = await request(app)
+      .post('/api/properties')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ advanceNoticeDays: 60 }));
+    expect(res.status).toBe(201);
+    expect(res.body.property.advanceNoticeDays).toBe(60);
+  });
+
+  it('rejects a negative advanceNoticeDays (400)', async () => {
+    const before = properties.length;
+    const res = await request(app)
+      .post('/api/properties')
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send(validCreateBody({ advanceNoticeDays: -5 }));
+    expect(res.status).toBe(400);
+    expect(properties.length).toBe(before); // nothing persisted
+  });
 });
 
 // ===========================================================================
@@ -389,6 +431,17 @@ describe('PATCH /api/properties/:id — update isolation', () => {
       .send({ city: 'Still A', companyId: COMPANY_B });
     expect(res.status).toBe(200);
     expect(res.body.property.companyId).toBe(COMPANY_A);
+  });
+
+  it('rejects a patch pushing total above the existing maxCapacity (400)', async () => {
+    // PROP_A seeded with maxCapacity 3; patching total to 9 must fail.
+    const res = await request(app)
+      .patch(`/api/properties/${PROP_A_ID}`)
+      .set('Cookie', managerCookie())
+      .set('Origin', ORIGIN)
+      .send({ total: 9 });
+    expect(res.status).toBe(400);
+    expect(properties.find((p) => p.id === PROP_A_ID)?.total).toBe(1); // untouched
   });
 });
 

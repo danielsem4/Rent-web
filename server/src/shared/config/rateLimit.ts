@@ -103,4 +103,14 @@ export const RATE_LIMIT_DEFAULTS = {
     max: 5,
     description: 'FUTURE invitation/activation redeem — per token/IP (mount with the endpoint)',
   },
+  /**
+   * Worker-document upload — per authenticated user. Bounds an expensive
+   * operation (multipart parse + magic-byte sniff + encrypt + disk write), §14.
+   * Mounted on POST /api/workers/:workerId/documents.
+   */
+  uploadDocument: {
+    windowMs: 15 * MINUTES,
+    max: 60,
+    description: 'POST /api/workers/:workerId/documents — per authenticated user',
+  },
 } as const satisfies Record<string, RateLimitPolicy>;

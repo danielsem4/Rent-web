@@ -18,7 +18,7 @@ CI / deployment config.
 | Backend | Express 5 + TS (CommonJS), REST | `server/package.json`, `server/src/app.ts` |
 | DB / ORM | PostgreSQL via Prisma 7 (`@prisma/adapter-pg`) | `server/prisma/schema.prisma`, `server/src/lib/prisma.ts` |
 | Migrations | Prisma Migrate, single baseline; **not** `db push` | `server/prisma/migrations/20260816211513_baseline/` |
-| API surface | `/api/auth`, `/api/users`, `/api/health` only; `Property` is schema-only | `server/src/app.ts:41-42` |
+| API surface | `/api/auth`, `/api/users`, `/api/properties`, `/api/workers`, `/api/payments`, `/api/health` | `server/src/app.ts` |
 | AuthN | Custom email+password → HS256 JWT in HttpOnly cookie | `server/src/modules/auth/*`, `authenticate.ts` |
 | AuthZ | `authenticate` + `authorize(...roles)` + query-level tenant scoping | `server/src/shared/middlewares/`, `users.repository.ts` |
 | Session store | Cookie `token`; client persists only `{ userId }` | `client/src/store/useAuthStore.ts`, `client/src/lib/axios.ts` |
@@ -51,7 +51,9 @@ Legend: ✅ IMPLEMENTED · 🟡 PARTIAL · ❌ MISSING · 🔍 NEEDS VERIFICATIO
 | Cookie HttpOnly / Secure(prod) / SameSite / host-only | ✅ | `cookie.ts:7-13` |
 | No auth token in localStorage | ✅ | store persists only `{ userId }` `useAuthStore.ts` |
 | Server-side authZ (role gate) | ✅ | `authorize.ts`, `users.routes.ts:22` |
-| Tenant isolation + IDOR protection (query-level) | ✅ | `users.repository.ts:46-85`; tested `tenant-isolation.test.ts` |
+| Tenant isolation + IDOR protection (query-level) | ✅ | `users.repository.ts:46-85`; tested `tenant-isolation.test.ts`; extended to Worker records incl. cross-tenant apartment-assignment guard `modules/workers/*`, `tests/integration/worker-tenant-isolation.test.ts` |
+| Field-level encryption of regulated PII (worker passport/insurance numbers) | ✅ | AES-256-GCM per-value IV + auth tag, `FIELD_ENCRYPTION_KEY` startup-validated (prod fail-fast); ciphertext at rest, omitted from list projection, plaintext only on authorized detail read `shared/utils/fieldEncryption.ts`, `modules/workers/workers.repository.ts`; tests `tests/fieldEncryption.test.ts`, `tests/workers.test.ts`, `tests/integration/worker-tenant-isolation.test.ts` |
+| File upload/storage of worker identity documents (§16) | 🟡 | Magic-byte allow-list (PDF/JPG/PNG) + 10 MB cap, UUID storage keys (no traversal), **AES-256-GCM encrypted at rest** via storage seam, authenticated tenant-scoped attachment downloads, per-user upload rate limit, audit names-only. `modules/workers/documents/*`, `shared/storage/{fileStorage,localFileStorage}.ts`; tests `tests/workerDocuments.test.ts`, `tests/integration/worker-document.integration.test.ts` (ciphertext-at-rest + cross-tenant 404). **AV/malware scanning DEFERRED — Needs Verification** (no scanner in env; compensating controls above). S3 backend (private + SSE) planned behind the same seam. |
 | Mass-assignment defense (companyId from context) | ✅ | `users.service.ts:38-40`, `users.schema.ts` |
 | Role-escalation defense (no SUPER_ADMIN via API; no self role change) | ✅ | `users.schema.ts:9`, `users.service.ts:47-49` |
 | Response projection (no passwordHash leak) | ✅ | `SafeUser` in `users.repository.ts`/`auth.repository.ts` |

@@ -6,16 +6,16 @@ import { propertiesApi } from "@/api/propertiesApi";
 import type { IPropertyInput } from "@/common/types/property";
 import { propertiesKey } from "./useProperties";
 
+// Navigation is intentionally NOT done here: the form awaits the created property
+// (mutateAsync), uploads any staged gallery images to its new id, then navigates.
 export function useCreateProperty() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const { t } = useTranslation();
   return useMutation({
     mutationFn: (input: IPropertyInput) => propertiesApi.create(input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: propertiesKey });
       toast.success(t("properties.created"));
-      void navigate("/properties");
     },
     onError: () => toast.error(t("properties.saveFailed")),
   });

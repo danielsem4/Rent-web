@@ -34,7 +34,8 @@ const row = (over: Partial<IPropertyListItem> = {}): IPropertyListItem => ({
   address: "1 Herzl St",
   ownerName: "Owner One",
   monthlyRent: 5000,
-  capacity: 3,
+  maxCapacity: 3,
+  total: 1,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   ...over,
@@ -61,6 +62,12 @@ describe("Properties list", () => {
     expect(screen.getByText("Haifa")).toBeInTheDocument();
   });
 
+  it("shows each property's occupancy", () => {
+    h.list = { data: [row({ total: 2, maxCapacity: 5 })], isLoading: false, isError: false };
+    renderList();
+    expect(screen.getByText("2 / 5")).toBeInTheDocument();
+  });
+
   it("shows the empty state when there are no properties", () => {
     renderList();
     expect(screen.getByText("No properties yet.")).toBeInTheDocument();
@@ -70,17 +77,28 @@ describe("Properties list", () => {
     h.list = { data: [row()], isLoading: false, isError: false };
     renderList();
     expect(screen.getByText("Add property")).toBeInTheDocument();
-    // Edit/delete controls are present for a manager.
+    // View + edit/delete controls are all present for a manager.
+    expect(screen.getByLabelText("View")).toBeInTheDocument();
     expect(screen.getByLabelText("Edit")).toBeInTheDocument();
     expect(screen.getByLabelText("Delete")).toBeInTheDocument();
   });
 
-  it("hides write controls for a COMPANY_WORKER (UX gating)", () => {
+  it("links the View (eye) action to the property detail page", () => {
+    h.list = { data: [row({ id: 42 })], isLoading: false, isError: false };
+    renderList();
+    expect(screen.getByLabelText("View").closest("a")).toHaveAttribute(
+      "href",
+      "/properties/42",
+    );
+  });
+
+  it("shows View but hides write controls for a COMPANY_WORKER (UX gating)", () => {
     h.role = "COMPANY_WORKER";
     h.list = { data: [row()], isLoading: false, isError: false };
     renderList();
-    // Data is still visible (read-only), but no create/edit/delete affordances.
+    // Data + View are visible (read-only), but no create/edit/delete affordances.
     expect(screen.getByText("Tel Aviv")).toBeInTheDocument();
+    expect(screen.getByLabelText("View")).toBeInTheDocument();
     expect(screen.queryByText("Add property")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Edit")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Delete")).not.toBeInTheDocument();

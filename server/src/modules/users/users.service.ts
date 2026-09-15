@@ -6,7 +6,7 @@ import { generateToken } from '../../shared/utils/token';
 import { AUDIT_ACTIONS, RESOURCE_TYPES } from '../../shared/constants/auditActions';
 import type { AuditContext, IAuditLogger } from '../../shared/audit/auditLogger';
 import type { IInvitationIssuer } from '../account/account.service';
-import type { IUsersRepository } from './users.repository';
+import type { IUsersRepository, UserListItem } from './users.repository';
 import type { CreateUserDto, UpdateUserDto } from './users.schema';
 
 export class UsersService {
@@ -16,7 +16,7 @@ export class UsersService {
     private readonly audit: IAuditLogger,
   ) {}
 
-  async list(currentUser: CurrentUser): Promise<SafeUser[]> {
+  async list(currentUser: CurrentUser): Promise<UserListItem[]> {
     return this.repo.listByCompany(currentUser.companyId);
   }
 

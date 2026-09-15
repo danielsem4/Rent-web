@@ -17,8 +17,11 @@ export interface PropertyRecord {
   ownerPhone: string | null;
   contractStart: Date | null;
   contractEnd: Date | null;
+  advanceNoticeDays: number | null;
   monthlyRent: number;
-  capacity: number;
+  rooms: number | null;
+  maxCapacity: number;
+  total: number;
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -44,8 +47,11 @@ export interface CreatePropertyData {
   ownerPhone?: string;
   contractStart?: Date;
   contractEnd?: Date;
+  advanceNoticeDays?: number;
   monthlyRent?: number;
-  capacity?: number;
+  rooms?: number;
+  maxCapacity?: number;
+  total?: number;
   notes?: string;
 }
 
@@ -82,8 +88,11 @@ export class PropertiesRepository implements IPropertiesRepository {
         ownerPhone: true,
         contractStart: true,
         contractEnd: true,
+        advanceNoticeDays: true,
         monthlyRent: true,
-        capacity: true,
+        rooms: true,
+        maxCapacity: true,
+        total: true,
         notes: true,
         createdAt: true,
         updatedAt: true,

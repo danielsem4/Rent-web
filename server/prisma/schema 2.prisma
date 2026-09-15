@@ -1,0 +1,179 @@
+// rent+ Prisma schema
+// learn more: https://pris.ly/d/prisma-schema
+//
+// This schema is reconciled to faithfully represent the live database
+// (roles taxonomy, Company/User/Property, companyId NOT NULL). The datasource
+// url is supplied via prisma.config.ts (Prisma 7 style), not here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  COMPANY_MANAGER
+  COMPANY_WORKER
+  RENTER
+}
+
+// Account-lifecycle token kinds (SECURITY_PRINCIPLES.md §3/§24). INVITATION lets a
+// provisioned user set their first password; PASSWORD_RESET drives forgot/reset.
+enum AccountTokenType {
+  INVITATION
+  PASSWORD_RESET
+}
+
+// ─── Company ─────────────────────────────────────────────
+
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      User[]
+  properties Property[]
+}
+
+// ─── User ────────────────────────────────────────────────
+// role has no DB default (matches the live DB). companyId is required —
+// every user belongs to a Company; SUPER_ADMIN is company-bound for now.
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role
+  companyId    Int
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Account status: a disabled user cannot authenticate and any already-issued
+  // token is rejected on its next protected request (authenticate re-checks this).
+  isActive     Boolean  @default(true)
+  // Security/session version. Incrementing it invalidates every previously issued
+  // JWT for this user (revoke-all). Tokens carry the version they were issued at.
+  tokenVersion Int      @default(0)
+  // ─ Email OTP 2FA (SECURITY_PRINCIPLES.md §3/§24) ─
+  // Mandatory for privileged roles (SUPER_ADMIN / COMPANY_MANAGER): on login a
+  // single-use 6-digit code is emailed and its SHA-256 HASH stored here (never the
+  // plaintext, §8). mfaCodeExpiresAt bounds its validity; mfaCodeAttempts counts
+  // wrong tries for lockout. All three are cleared once a code is consumed.
+  mfaCodeHash      String?
+  mfaCodeExpiresAt DateTime?
+  mfaCodeAttempts  Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  accountTokens AccountToken[]
+  refreshTokens RefreshToken[]
+
+  @@index([email])
+  @@index([companyId])
+}
+
+// ─── AccountToken ────────────────────────────────────────
+// Single-use, time-limited tokens for the account lifecycle (invitation /
+// password-reset). Only the SHA-256 HASH of the random token is stored — the raw
+// token is delivered to the user and never persisted or logged (SECURITY_PRINCIPLES.md
+// §7/§18). A token is spent by setting `usedAt`; rows cascade-delete with the user.
+
+model AccountToken {
+  id        Int              @id @default(autoincrement())
+  tokenHash String           @unique
+  type      AccountTokenType
+  userId    Int
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+}
+
+// ─── RefreshToken ────────────────────────────────────────
+// Stateful, rotating refresh tokens (SECURITY_PRINCIPLES.md §4 — the sanctioned
+// per-session server-side revocation record). Only the SHA-256 HASH of the raw
+// token is stored; the raw token lives only in an HttpOnly/Secure/SameSite cookie
+// and is never persisted or logged (§7/§18). Each login starts a token FAMILY;
+// every /refresh rotates (old row `isRevoked:true`, new row same `familyId`). If a
+// revoked/expired token is replayed (reuse), the WHOLE family is revoked and the
+// user's `tokenVersion` is bumped (revoke-all) — breach mitigation.
+//
+// DELIBERATE deviations from the repo's Int-autoincrement convention: `id` is a
+// String UUID and `familyId` is a String UUID (rotation lineage). `userId` stays
+// Int (FK to User.id) with onDelete: Cascade (rows die with the user).
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId  String
+  isRevoked Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+// ─── AuditLog ────────────────────────────────────────────
+// Append-only security audit trail (SECURITY_PRINCIPLES.md §18). Records
+// security-sensitive events (login success/failure, user create, invitation,
+// password reset, role change, session revocation).
+//
+// DELIBERATE deviation from the repo's "always FK + cascade" convention:
+// `userId`/`companyId` are LOOSE nullable columns with NO foreign key, so an
+// audit record is forensic evidence that SURVIVES deletion of the referenced
+// user/company (a cascade would erase the trail). `metadata` is SANITIZED before
+// write — it must NEVER contain passwords, tokens, tokenHash, cookies, or secrets.
+
+model AuditLog {
+  id           Int      @id @default(autoincrement())
+  companyId    Int?
+  userId       Int?
+  action       String
+  resourceType String
+  resourceId   String?
+  ipAddress    String?
+  userAgent    String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ─── Property ────────────────────────────────────────────
+// Schema definition only — reconciles with the live DB. No Property
+// module/API/service/UI is built in this phase.
+
+model Property {
+  id            Int       @id @default(autoincrement())
+  companyId     Int
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  city          String
+  address       String
+  entryCode     String?
+  electricMeter String?
+  waterMeter    String?
+  ownerName     String?
+  ownerPhone    String?
+  contractStart DateTime?
+  contractEnd   DateTime?
+  monthlyRent   Int       @default(0)
+  capacity      Int       @default(1)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([companyId])
+}
