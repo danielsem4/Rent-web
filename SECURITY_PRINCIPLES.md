@@ -75,9 +75,26 @@ findings). This file states *what must be true*; the gap analysis states *what i
 **Principals / trust boundaries**
 - Roles: `SUPER_ADMIN`, `COMPANY_MANAGER`, `COMPANY_WORKER`, `RENTER` (Prisma `Role` enum —
   the single source of truth). Multi-tenant by `companyId`.
-- Boundaries: browser → API (cookie-authenticated), API → PostgreSQL, and API → **local
-  encrypted file storage** for worker identity documents (an S3 backend is planned behind the
-  same storage seam — not built). No third-party egress, **no AI/LLM** boundary exists today.
+- **Foreign-worker mobile principal** (distinct from the staff `Role` users): a `Worker` row
+  with `authEnabled` is its own login principal for a separate native mobile app. It logs in
+  with **QR-identify + WhatsApp OTP** or **phone + WhatsApp OTP** (no password), and its access
+  tokens carry a DISTINCT JWT audience (`rentplus-worker`) verified by a separate
+  `authenticateWorker` middleware — a worker token can never authenticate on staff routes and
+  vice-versa. Its session is **Bearer-transported, not cookie-based**: this is a *deliberate,
+  documented deviation* from §4's browser "cookies-only" rule, justified because a native app
+  has no DOM/XSS/`localStorage` surface and stores the token in hardware-backed secure storage
+  (Keychain/Keystore). Because Bearer carries no ambient credential, the worker portal is not
+  cookie-CSRF-vulnerable (§13). The deviation is bounded by the SAME revocation story as staff:
+  short access TTL + rotating hashed refresh + per-request DB revalidation of `authEnabled` +
+  `tokenVersion` (revoke-all). The worker portal returns only NON-decrypted projections
+  (expiry dates, not passport/insurance numbers) to minimize regulated-PII egress.
+- Boundaries: browser → API (cookie-authenticated), **native worker app → API (Bearer)**, API →
+  PostgreSQL, and API → **local encrypted file storage** for worker identity documents (an S3
+  backend is planned behind the same storage seam — not built). **API → WhatsApp provider** is a
+  new outbound third-party egress used ONLY to deliver the worker-login OTP (a phone number +
+  6-digit code leave the boundary; requires a provider account + approved auth template — see
+  the `IWhatsAppSender` seam, fail-closed in production when unconfigured). **No AI/LLM**
+  boundary exists today.
 
 **Threats we actively defend against** (with today's status; see gap analysis for detail):
 account takeover, privilege escalation, IDOR/BOLA, broken authorization, brute force /

@@ -7,6 +7,9 @@ import { createUsersRouter } from './modules/users/users.routes';
 import { createPropertiesRouter } from './modules/properties/properties.routes';
 import { createWorkersRouter } from './modules/workers/workers.routes';
 import { createPaymentsRouter } from './modules/payments/payments.routes';
+import { createInspectionsRouter } from './modules/inspections/inspections.routes';
+import { createWorkerAuthRouter } from './modules/worker-auth/workerAuth.routes';
+import { createWorkerPortalRouter } from './modules/worker-portal/workerPortal.routes';
 import { createAccountRouter } from './modules/account/account.routes';
 import { errorHandler } from './shared/middlewares/errorHandler';
 import { requestContext } from './shared/middlewares/requestContext';
@@ -31,6 +34,11 @@ import {
   SmtpAccountMailer,
   type AccountMailer,
 } from './shared/notifications/mailer';
+import {
+  ConsoleWhatsAppSender,
+  ProviderWhatsAppSender,
+  type IWhatsAppSender,
+} from './shared/notifications/whatsapp';
 import { loadConfig, type AppConfig } from './shared/config/env';
 
 /** Optional overrides for tests (e.g. a capturing mailer or audit logger). */
@@ -39,6 +47,8 @@ export interface AppOverrides {
   auditLogger?: IAuditLogger;
   /** File-storage backend (defaults to encrypted local disk from config). */
   storage?: IFileStorage;
+  /** WhatsApp OTP sender (defaults to the provider seam / console sender from config). */
+  whatsapp?: IWhatsAppSender;
 }
 
 /**
@@ -147,14 +157,28 @@ export function createApp(
   // disk by default (bytes AES-256-GCM encrypted at rest); tests inject a stub.
   const storage = overrides.storage ?? new LocalFileStorage(config.fileStorageDir);
 
+  // WhatsApp OTP delivery seam for the foreign-worker login (SECURITY §3). Provider
+  // when configured (real integration), else the console sender (logs in dev, fails
+  // closed in prod). Tests may inject a capturing sender.
+  const whatsapp =
+    overrides.whatsapp ??
+    (config.whatsapp ? new ProviderWhatsAppSender(config.whatsapp) : new ConsoleWhatsAppSender());
+
   // Module routes. The account router mounts additional POST endpoints under
   // /api/auth (invitation/accept, forgot-password, reset-password).
   app.use('/api/auth', createAuthRouter({ auditLogger, mailer }));
   app.use('/api/auth', createAccountRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
   app.use('/api/users', createUsersRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
   app.use('/api/properties', createPropertiesRouter({ auditLogger, storage }));
-  app.use('/api/workers', createWorkersRouter({ auditLogger, storage }));
+  app.use(
+    '/api/workers',
+    createWorkersRouter({ auditLogger, storage, appLinkBase: config.workerAppLinkBase }),
+  );
   app.use('/api/payments', createPaymentsRouter());
+  app.use('/api/inspections', createInspectionsRouter());
+  // Foreign-worker mobile app: public login (Bearer session) + self-scoped portal.
+  app.use('/api/worker-auth', createWorkerAuthRouter({ auditLogger, whatsapp }));
+  app.use('/api/worker-portal', createWorkerPortalRouter({ auditLogger, storage }));
 
   // Error handler (must be last)
   app.use(errorHandler);

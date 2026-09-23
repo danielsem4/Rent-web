@@ -13,11 +13,14 @@ import { createWorkersController } from './workers.controller';
 import { WorkerDocumentsRepository } from './documents/documents.repository';
 import { WorkerDocumentCleanup } from './documents/documents.service';
 import { createWorkerDocumentsRouter } from './documents/documents.routes';
+import { createAppAccessRouter } from './app-access/appAccess.routes';
 
 export interface WorkersRouterDeps {
   auditLogger: IAuditLogger;
   /** Backend for encrypted document storage (local disk now, S3 later). */
   storage: IFileStorage;
+  /** Base URL for the worker QR deep link (config.workerAppLinkBase). */
+  appLinkBase: string;
 }
 
 /**
@@ -61,6 +64,11 @@ export function createWorkersRouter(deps: WorkersRouterDeps): Router {
   router.use(
     '/:workerId/documents',
     createWorkerDocumentsRouter({ auditLogger: deps.auditLogger, storage: deps.storage }),
+  );
+  // Nested mobile-app access routes: /api/workers/:workerId/app-access/* (manager-only).
+  router.use(
+    '/:workerId/app-access',
+    createAppAccessRouter({ auditLogger: deps.auditLogger, appLinkBase: deps.appLinkBase }),
   );
   return router;
 }

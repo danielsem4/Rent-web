@@ -113,4 +113,40 @@ export const RATE_LIMIT_DEFAULTS = {
     max: 60,
     description: 'POST /api/workers/:workerId/documents — per authenticated user',
   },
+
+  // --- Foreign-worker mobile login (SECURITY_PRINCIPLES.md §3/§15) -----------
+  /**
+   * Worker OTP start (qr/start, phone/start) — bounds how fast one source, or one
+   * targeted identifier (qrToken/phone), can trigger outbound WhatsApp OTPs
+   * (expensive + anti-bombing). Mounted as a per-IP + per-identifier+IP pair.
+   */
+  workerOtpStart: {
+    windowMs: 15 * MINUTES,
+    max: 10,
+    description: 'POST /api/worker-auth/(qr|phone)/start — per IP and per identifier+IP',
+  },
+  /** Worker OTP verify — per IP, FAILED-only. Bounds brute-forcing the 6-digit code. */
+  workerOtpVerify: {
+    windowMs: 15 * MINUTES,
+    max: 5,
+    description: 'POST /api/worker-auth/verify — per IP, failed attempts only',
+  },
+  /** Worker OTP resend — per IP. Tighter, anti WhatsApp-bombing. */
+  workerOtpResend: {
+    windowMs: 15 * MINUTES,
+    max: 3,
+    description: 'POST /api/worker-auth/otp/resend — per IP',
+  },
+  /** Worker refresh — per IP. Silent token renewal for the worker session. */
+  workerRefresh: {
+    windowMs: 15 * MINUTES,
+    max: 60,
+    description: 'POST /api/worker-auth/refresh — per IP',
+  },
+  /** Worker request submission — per authenticated worker. Bounds spam/DoS on the inbox. */
+  workerRequestSubmit: {
+    windowMs: 15 * MINUTES,
+    max: 30,
+    description: 'POST /api/worker-portal/requests — per authenticated worker',
+  },
 } as const satisfies Record<string, RateLimitPolicy>;

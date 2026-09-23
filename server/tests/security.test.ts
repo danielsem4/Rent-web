@@ -205,6 +205,11 @@ describe('CORS origin comes from validated config (no silent localhost fallback 
     SMTP_USER: 'mailer',
     SMTP_PASS: 'mailer-pass',
     MAIL_FROM: 'no-reply@app.example.com',
+    // WhatsApp is required as a complete set in production (worker-login OTP).
+    WHATSAPP_PROVIDER: 'meta',
+    WHATSAPP_API_TOKEN: 'wa-token',
+    WHATSAPP_FROM_ID: '1234567890',
+    WHATSAPP_TEMPLATE_NAME: 'login_otp',
     ...over,
   });
 

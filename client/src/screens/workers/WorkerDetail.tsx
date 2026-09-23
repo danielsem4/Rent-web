@@ -9,6 +9,7 @@ import {
   FileText,
   ShieldPlus,
   Phone,
+  Smartphone,
   LayoutGrid,
   AlertCircle,
   CheckCircle2,
@@ -26,6 +27,7 @@ import { useProperties } from "@/screens/properties/hooks/queries/useProperties"
 import { useWorker } from "./hooks/queries/useWorkers";
 import { ExpiryBadge } from "./components/ExpiryBadge";
 import WorkerDocuments from "./components/WorkerDocuments";
+import WorkerAppAccess from "./components/WorkerAppAccess";
 import { documentHealth, yearsSince, type DocumentHealth } from "./lib/expiry";
 
 /** A single label/value pair inside a section grid. */
@@ -117,13 +119,14 @@ function StatusBadge({ severity }: { severity: DocumentHealth }) {
   );
 }
 
-type TabKey = "overview" | "documents" | "insurance" | "contact";
+type TabKey = "overview" | "documents" | "insurance" | "contact" | "appAccess";
 
-const TABS: { key: TabKey; labelKey: string; icon: LucideIcon }[] = [
+const TABS: { key: TabKey; labelKey: string; icon: LucideIcon; managerOnly?: boolean }[] = [
   { key: "overview", labelKey: "workers.tabs.overview", icon: LayoutGrid },
   { key: "documents", labelKey: "workers.tabs.documents", icon: FileText },
   { key: "insurance", labelKey: "workers.tabs.insurance", icon: ShieldPlus },
   { key: "contact", labelKey: "workers.tabs.contact", icon: Phone },
+  { key: "appAccess", labelKey: "workers.tabs.appAccess", icon: Smartphone, managerOnly: true },
 ];
 
 /** Segmented control that switches the panel below. RTL-safe (logical flow). */
@@ -131,15 +134,17 @@ function Tabs({
   tab,
   setTab,
   warningCount,
+  tabs,
 }: {
   tab: TabKey;
   setTab: (t: TabKey) => void;
   warningCount: number;
+  tabs: typeof TABS;
 }) {
   const { t } = useTranslation();
   return (
     <div className="bg-muted flex gap-1 overflow-x-auto rounded-xl border border-border p-1">
-      {TABS.map(({ key, labelKey, icon: Icon }) => {
+      {tabs.map(({ key, labelKey, icon: Icon }) => {
         const active = tab === key;
         return (
           <button
@@ -236,6 +241,8 @@ export default function WorkerDetail() {
   const role = useAuthStore((s) => s.user?.role);
   const canWrite = role === ROLES.COMPANY_MANAGER;
   const [tab, setTab] = useState<TabKey>("overview");
+  // App-access controls are manager-only (UX gate; server enforces).
+  const visibleTabs = TABS.filter((tabDef) => !tabDef.managerOnly || canWrite);
 
   const apartmentProp = worker?.propertyId
     ? (properties ?? []).find((x) => x.id === worker.propertyId)
@@ -333,7 +340,7 @@ export default function WorkerDetail() {
         )}
       </div>
 
-      <Tabs tab={tab} setTab={setTab} warningCount={health.count} />
+      <Tabs tab={tab} setTab={setTab} warningCount={health.count} tabs={visibleTabs} />
 
       {tab === "overview" && (
         <div className="grid gap-6 lg:grid-cols-2">
@@ -379,6 +386,10 @@ export default function WorkerDetail() {
             <Field label={t("workers.notes")} value={worker.notes} />
           </div>
         </Section>
+      )}
+
+      {tab === "appAccess" && canWrite && (
+        <WorkerAppAccess workerId={worker.id} defaultPhone={worker.phone ?? null} />
       )}
     </div>
   );

@@ -44,3 +44,14 @@ export const JWT_AUDIENCE = 'rentplus-app';
  */
 export const MFA_TOKEN_TTL = '10m';
 export const JWT_MFA_AUDIENCE = 'rentplus-mfa';
+
+/**
+ * Worker (mobile-app) principal token policy (SECURITY_PRINCIPLES.md §4). The
+ * foreign-worker mobile app is a SEPARATE principal from staff: its access tokens
+ * carry a DISTINCT audience so the staff `authenticate` (which pins `JWT_AUDIENCE`)
+ * can never accept a worker token, and `authenticateWorker` (which pins this) can
+ * never accept a staff token. Same short access TTL + rotating refresh model as
+ * staff; the worker session is Bearer-transported (native secure storage), not a
+ * cookie — see `authenticateWorker`.
+ */
+export const JWT_WORKER_AUDIENCE = 'rentplus-worker';
