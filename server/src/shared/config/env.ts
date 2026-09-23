@@ -65,6 +65,21 @@ export interface SmtpConfig {
   from: string;
 }
 
+/**
+ * WhatsApp delivery config for the foreign-worker login OTP (SECURITY_PRINCIPLES.md
+ * §3/§9). When absent, the app falls back to the console sender (dev only — it fails
+ * closed in production). Required as a complete set in production. Provider-agnostic:
+ * `provider` selects Meta Cloud API vs Twilio; `apiToken` is the bearer secret;
+ * `fromId` is the sending identity (Meta phone-number-id or Twilio from-number);
+ * `templateName` is the approved authentication-message template.
+ */
+export interface WhatsAppConfig {
+  provider: 'meta' | 'twilio';
+  apiToken: string;
+  fromId: string;
+  templateName: string;
+}
+
 export interface AppConfig {
   nodeEnv: string;
   isProduction: boolean;
@@ -88,11 +103,25 @@ export interface AppConfig {
   databaseUrl: string | undefined;
   clientUrl: string | undefined;
   /**
+   * Base URL for the foreign-worker mobile app's QR deep link (a domain-verified
+   * https App Link / Universal Link — NOT a custom scheme, which is hijackable).
+   * The QR encodes `${workerAppLinkBase}/w/onboard?t=<qrToken>`. Not a secret; in
+   * production point it at the app's verified domain (hosts the
+   * apple-app-site-association / assetlinks.json association files).
+   */
+  workerAppLinkBase: string;
+  /**
    * SMTP delivery config (SECURITY_PRINCIPLES.md §7). `undefined` = no provider →
    * the console mailer is used (dev-only; it fails closed in production). Required
    * as a complete set in production so outbound mail (incl. the 2FA code) works.
    */
   smtp: SmtpConfig | undefined;
+  /**
+   * WhatsApp OTP delivery config (SECURITY_PRINCIPLES.md §3/§9). `undefined` = no
+   * provider → the console sender is used (dev-only; it fails closed in production).
+   * Required as a complete set in production so the worker-login OTP can be sent.
+   */
+  whatsapp: WhatsAppConfig | undefined;
   /** Rate-limit policy values (SECURITY_PRINCIPLES.md §15/§28). */
   rateLimit: RateLimitConfig;
   /**
@@ -158,6 +187,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const fileStorageDir = env['FILE_STORAGE_DIR']?.trim() || './uploads/worker-documents';
   const databaseUrl = env['DATABASE_URL'];
   const clientUrl = env['CLIENT_URL'];
+  const workerAppLinkBase =
+    env['WORKER_APP_LINK_BASE']?.trim() || 'https://app.rentplus.example';
   const rawPort = env['PORT'];
 
   const errors: string[] = [];
@@ -278,6 +309,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // the 2FA code / invitations). Validated as a complete group.
   const smtp = readSmtpConfig(env, isProduction, errors);
 
+  // WhatsApp — outbound OTP provider for the foreign-worker login. Absent => console
+  // sender (dev only; fails closed in prod). In production the full set is required
+  // (fail closed rather than silently dropping the login OTP). Validated as a group.
+  const whatsapp = readWhatsAppConfig(env, isProduction, errors);
+
   // TRUST_PROXY — optional. Absent => undefined (OFF, secure default). When
   // present it must be a positive integer hop count (fail closed otherwise); we
   // never accept `true`, which would let any client spoof X-Forwarded-For.
@@ -302,11 +338,55 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     fileStorageDir,
     databaseUrl,
     clientUrl,
+    workerAppLinkBase,
     smtp,
+    whatsapp,
     rateLimit,
     trustProxy,
     logLevel,
   };
+}
+
+/**
+ * Read WhatsApp config as a complete group. Returns `undefined` when NO `WHATSAPP_*`
+ * var is set (dev falls back to the console sender). If any is set, all of
+ * `WHATSAPP_PROVIDER` (meta|twilio), `WHATSAPP_API_TOKEN`, `WHATSAPP_FROM_ID`,
+ * `WHATSAPP_TEMPLATE_NAME` must be present and valid. In production the full set is
+ * mandatory even if none is provided (fail closed). Never echoes the token value.
+ */
+function readWhatsAppConfig(
+  env: NodeJS.ProcessEnv,
+  isProduction: boolean,
+  errors: string[],
+): WhatsAppConfig | undefined {
+  const provider = env['WHATSAPP_PROVIDER'];
+  const apiToken = env['WHATSAPP_API_TOKEN'];
+  const fromId = env['WHATSAPP_FROM_ID'];
+  const templateName = env['WHATSAPP_TEMPLATE_NAME'];
+
+  const anySet = [provider, apiToken, fromId, templateName].some(
+    (v) => v !== undefined && v !== '',
+  );
+  if (!anySet) {
+    if (isProduction) {
+      errors.push(
+        'WhatsApp configuration (WHATSAPP_PROVIDER/API_TOKEN/FROM_ID/TEMPLATE_NAME) is required in production',
+      );
+    }
+    return undefined;
+  }
+
+  if (provider !== 'meta' && provider !== 'twilio') {
+    errors.push("WHATSAPP_PROVIDER must be 'meta' or 'twilio' when WhatsApp is configured");
+  }
+  if (!apiToken) errors.push('WHATSAPP_API_TOKEN is required when WhatsApp is configured');
+  if (!fromId) errors.push('WHATSAPP_FROM_ID is required when WhatsApp is configured');
+  if (!templateName) errors.push('WHATSAPP_TEMPLATE_NAME is required when WhatsApp is configured');
+
+  if ((provider !== 'meta' && provider !== 'twilio') || !apiToken || !fromId || !templateName) {
+    return undefined;
+  }
+  return { provider, apiToken, fromId, templateName };
 }
 
 /**

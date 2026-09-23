@@ -94,6 +94,21 @@ enum ExpenseCategory {
   OTHER
 }
 
+// Kind of request a foreign worker submits from the mobile app to the managing
+// company. Deliberately coarse — the free-text `message` carries the detail.
+enum WorkerRequestType {
+  MAINTENANCE
+  GENERAL
+}
+
+// Lifecycle of a worker-submitted request. Worker creates OPEN; staff transition
+// it. Server-controlled (never set from the worker's request body).
+enum WorkerRequestStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
 // ─── Company ─────────────────────────────────────────────
 
 model Company {
@@ -114,6 +129,7 @@ model Company {
   guarantees      Guarantee[]
   expenses        Expense[]
   inspections     Inspection[]
+  workerRequests  WorkerRequest[]
 }
 
 // ─── User ────────────────────────────────────────────────
@@ -334,13 +350,88 @@ model Worker {
   propertyId            Int?
   property              Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   notes                 String?
+  // ─ Mobile-app authentication (SECURITY_PRINCIPLES.md §3/§4/§24) ─
+  // A worker is a STANDALONE login principal for the separate mobile app, issued
+  // JWTs under a DISTINCT audience ('rentplus-worker') so the staff `authenticate`
+  // can never accept one (and vice-versa). Staff auth is untouched. Login is
+  // QR-identify + WhatsApp OTP — there is NO password. `authEnabled` gates login;
+  // disabling it or rotating the QR bumps `tokenVersion` (revoke-all). Only HASHES
+  // are stored (qrTokenHash, mfaCodeHash) — the raw QR token/OTP are never persisted.
+  authEnabled           Boolean   @default(false)
+  tokenVersion          Int       @default(0)
+  // Normalized E.164 phone for the phone-number login path (kept separate from the
+  // display `phone`). A PARTIAL UNIQUE index (WHERE authEnabled) — added via raw SQL
+  // in the migration, since Prisma can't express a filtered unique — guarantees a
+  // typed phone resolves to at most one app-enabled worker.
+  phoneE164             String?
+  // Opaque QR identifier. `qrTokenHash` (SHA-256) is the LOOKUP key used at login —
+  // fast, indexed, unique. `qrTokenEnc` holds the SAME raw token ENCRYPTED at rest
+  // (AES-256-GCM, shared/utils/fieldEncryption) so the manager UI can RE-RENDER the
+  // QR on demand (GET .../qr) without re-issuing it. The raw token is useless without
+  // the WhatsApp OTP. Rotating clears/replaces both; disabling leaves them but flips
+  // authEnabled (login checks authEnabled), so a stale QR grants nothing.
+  qrTokenHash           String?   @unique
+  qrTokenEnc            String?
+  // WhatsApp OTP (mirrors the User email-OTP columns): single-use, expiring,
+  // attempt-capped. Only the hash is stored; the plaintext is sent, never persisted.
+  mfaCodeHash           String?
+  mfaCodeExpiresAt      DateTime?
+  mfaCodeAttempts       Int       @default(0)
+  lastLoginAt           DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  documents WorkerDocument[]
+  documents     WorkerDocument[]
+  refreshTokens WorkerRefreshToken[]
+  requests      WorkerRequest[]
 
   @@index([companyId])
   @@index([propertyId])
+  @@index([phoneE164])
+}
+
+// ─── WorkerRefreshToken ──────────────────────────────────
+// Stateful, rotating refresh tokens for the WORKER principal (SECURITY_PRINCIPLES.md
+// §4). A deliberate PARALLEL of `RefreshToken` (staff) rather than making that table
+// polymorphic — the two principals stay fully isolated. Same hardening: only the
+// SHA-256 hash is stored; each login opens a `familyId`; every rotate revokes the old
+// row and issues a successor; replaying a revoked/expired token revokes the whole
+// family AND bumps the worker's `tokenVersion` (revoke-all). FK cascades with Worker.
+
+model WorkerRefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  workerId  Int
+  worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  familyId  String
+  isRevoked Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([workerId])
+  @@index([familyId])
+}
+
+// ─── WorkerRequest ───────────────────────────────────────
+// A maintenance/general request a worker submits from the mobile app to the
+// managing company. Tenant-isolated by companyId (denormalized, like Payment).
+// `companyId`/`workerId`/`status` are ALWAYS set server-side from the authenticated
+// worker principal — never from the request body (mass-assignment defense, §10).
+
+model WorkerRequest {
+  id        Int                 @id @default(autoincrement())
+  companyId Int
+  company   Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  workerId  Int
+  worker    Worker              @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  type      WorkerRequestType
+  message   String
+  status    WorkerRequestStatus @default(OPEN)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@index([companyId])
+  @@index([workerId])
 }
 
 // ─── WorkerDocument ──────────────────────────────────────

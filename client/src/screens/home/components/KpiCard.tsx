@@ -6,12 +6,13 @@ import { useCountUp } from "@/hooks/common/useCountUp";
 import { cn } from "@/lib/utils";
 
 /** Per-domain accent. Drives the leading edge + tinted icon chip. */
-export type KpiAccent = "info" | "success" | "warning" | "primary" | "muted";
+export type KpiAccent = "info" | "success" | "warning" | "danger" | "primary" | "muted";
 
 const ACCENT: Record<KpiAccent, { edge: string; chip: string }> = {
   info: { edge: "border-s-info", chip: "bg-info-bg text-info" },
   success: { edge: "border-s-success", chip: "bg-success-bg text-success" },
   warning: { edge: "border-s-warning", chip: "bg-warning-bg text-warning" },
+  danger: { edge: "border-s-danger", chip: "bg-danger-bg text-danger" },
   primary: { edge: "border-s-primary", chip: "bg-primary/10 text-primary" },
   muted: { edge: "border-s-border", chip: "bg-muted text-muted-foreground" },
 };

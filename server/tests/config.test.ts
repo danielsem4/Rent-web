@@ -17,6 +17,11 @@ const validProd = (): NodeJS.ProcessEnv => ({
   SMTP_USER: 'mailer',
   SMTP_PASS: 'mailer-pass',
   MAIL_FROM: 'no-reply@rentplus.example',
+  // WhatsApp is required as a complete set in production (worker-login OTP delivery).
+  WHATSAPP_PROVIDER: 'meta',
+  WHATSAPP_API_TOKEN: 'wa-token',
+  WHATSAPP_FROM_ID: '1234567890',
+  WHATSAPP_TEMPLATE_NAME: 'login_otp',
 });
 
 describe('loadConfig — production fail-fast', () => {
@@ -89,6 +94,29 @@ describe('loadConfig — production fail-fast', () => {
     const env = validProd();
     delete env['MAIL_FROM'];
     expect(() => loadConfig(env)).toThrow(/MAIL_FROM/);
+  });
+
+  it('throws when WhatsApp is not configured in production (naming WhatsApp)', () => {
+    const env = validProd();
+    delete env['WHATSAPP_PROVIDER'];
+    delete env['WHATSAPP_API_TOKEN'];
+    delete env['WHATSAPP_FROM_ID'];
+    delete env['WHATSAPP_TEMPLATE_NAME'];
+    expect(() => loadConfig(env)).toThrow(/WhatsApp/);
+  });
+
+  it('throws when WhatsApp is partially configured (missing token), never echoing it', () => {
+    const env = { ...validProd(), WHATSAPP_API_TOKEN: '' };
+    expect(() => loadConfig(env)).toThrow(/WHATSAPP_API_TOKEN/);
+  });
+
+  it('builds the whatsapp config from a complete set', () => {
+    const cfg = loadConfig(validProd());
+    expect(cfg.whatsapp).toMatchObject({
+      provider: 'meta',
+      fromId: '1234567890',
+      templateName: 'login_otp',
+    });
   });
 
   it('builds the smtp config from a complete set', () => {

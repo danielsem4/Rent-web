@@ -202,3 +202,94 @@ export function createUploadRateLimiter(policy: RateLimitPolicy) {
     },
   });
 }
+
+// ── Foreign-worker mobile login (SECURITY_PRINCIPLES.md §3/§15) ──────────────
+
+/** Normalize the login identifier (phone or qrToken) from the body for keying. */
+function workerIdentifierKey(req: Request): string {
+  const body = req.body as { phone?: unknown; qrToken?: unknown } | undefined;
+  const raw =
+    typeof body?.phone === 'string' && body.phone.trim() !== ''
+      ? body.phone
+      : typeof body?.qrToken === 'string'
+        ? body.qrToken
+        : '';
+  // Hash-free: the express-rate-limit store keys are opaque. We still lowercase +
+  // trim so trivial variants share a bucket. Empty → 'unknown' (keeps the pair on IP).
+  return raw.trim().toLowerCase() || 'unknown';
+}
+
+/**
+ * Worker OTP-start limiters (qr/start, phone/start). A pair mounted together:
+ *  1. per client IP (all attempts) — the primary brake on OTP flooding;
+ *  2. per identifier+IP — stops repeatedly targeting one worker's WhatsApp.
+ * Both keys are derived purely from `req.body`/IP, so they behave IDENTICALLY for a
+ * real and a non-existent identifier (enumeration-safe). Window-based (no lockout).
+ */
+export function createWorkerOtpStartRateLimiters(policy: RateLimitPolicy) {
+  const ipLimiter = rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: policy.windowMs,
+    limit: policy.max,
+    keyGenerator: ipKey,
+  });
+  const identifierLimiter = rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: policy.windowMs,
+    limit: policy.max,
+    keyGenerator: (req: Request): string => `${workerIdentifierKey(req)}|${ipKey(req)}`,
+  });
+  return [ipLimiter, identifierLimiter] as const;
+}
+
+/**
+ * Worker OTP-verify limiter — per IP, FAILED-only (`skipSuccessfulRequests`). The
+ * verify body carries only an opaque `challengeToken` (no identifier), so per-IP is
+ * the meaningful brake on brute-forcing the 6-digit code. Window-based (no lockout).
+ */
+export function createWorkerOtpVerifyRateLimiter(policy: RateLimitPolicy) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: policy.windowMs,
+    limit: policy.max,
+    skipSuccessfulRequests: true,
+    keyGenerator: ipKey,
+  });
+}
+
+/** Worker OTP-resend limiter — per IP (anti WhatsApp-bombing). Tighter than verify. */
+export function createWorkerOtpResendRateLimiter(policy: RateLimitPolicy) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: policy.windowMs,
+    limit: policy.max,
+    keyGenerator: ipKey,
+  });
+}
+
+/** Worker refresh limiter — per IP. */
+export function createWorkerRefreshRateLimiter(policy: RateLimitPolicy) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: policy.windowMs,
+    limit: policy.max,
+    keyGenerator: ipKey,
+  });
+}
+
+/**
+ * Worker request-submit limiter — mounted AFTER `authenticateWorker`, so it keys on
+ * the authenticated worker id (falling back to IP), bounding inbox spam/DoS from one
+ * worker. Window-based (no lockout).
+ */
+export function createWorkerRequestRateLimiter(policy: RateLimitPolicy) {
+  return rateLimit({
+    ...BASE_OPTIONS,
+    windowMs: policy.windowMs,
+    limit: policy.max,
+    keyGenerator: (req: Request): string => {
+      const workerId = req.workerPrincipal?.workerId;
+      return workerId != null ? `worker:${workerId}` : ipKey(req);
+    },
+  });
+}
