@@ -12,6 +12,8 @@ const makeUser = (role: Role): IUser => ({
   email: "user@rentplus.dev",
   name: "User",
   role,
+  companyId: 1,
+  enabledModules: [],
 });
 
 /**

@@ -1,5 +1,6 @@
 import { AppError } from '../../../shared/errors/AppError';
 import type { CurrentUser } from '../../../shared/middlewares/authenticate';
+import { tenantId } from '../../../shared/utils/tenant';
 import { AUDIT_ACTIONS, RESOURCE_TYPES } from '../../../shared/constants/auditActions';
 import type { AuditContext, IAuditLogger } from '../../../shared/audit/auditLogger';
 import {
@@ -29,8 +30,8 @@ export class UtilityBillsService {
   ) {}
 
   async list(propertyId: number, currentUser: CurrentUser): Promise<UtilityBillView[]> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
-    const bills = await this.repo.listByProperty(propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
+    const bills = await this.repo.listByProperty(propertyId, tenantId(currentUser));
     return bills.map(withOverdue);
   }
 
@@ -39,8 +40,8 @@ export class UtilityBillsService {
     id: number,
     currentUser: CurrentUser,
   ): Promise<UtilityBillView> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
-    const bill = await this.repo.findByIdInScope(id, propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
+    const bill = await this.repo.findByIdInScope(id, propertyId, tenantId(currentUser));
     if (!bill) {
       throw new AppError('Utility bill not found', 404);
     }
@@ -53,12 +54,12 @@ export class UtilityBillsService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<UtilityBillView> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
 
     // Ownership + parent scope come from the trusted context/path, never the body.
     const bill = await this.repo.createInScope({
       ...dto,
-      companyId: currentUser.companyId,
+      companyId: tenantId(currentUser),
       propertyId,
     });
 
@@ -66,7 +67,7 @@ export class UtilityBillsService {
       action: AUDIT_ACTIONS.UTILITY_BILL_CREATED,
       resourceType: RESOURCE_TYPES.UTILITY_BILL,
       resourceId: String(bill.id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { propertyId, fields: Object.keys(dto) },
     });
@@ -80,9 +81,9 @@ export class UtilityBillsService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<UtilityBillView> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
 
-    const updated = await this.repo.updateInScope(id, propertyId, currentUser.companyId, dto);
+    const updated = await this.repo.updateInScope(id, propertyId, tenantId(currentUser), dto);
     if (!updated) {
       throw new AppError('Utility bill not found', 404);
     }
@@ -91,7 +92,7 @@ export class UtilityBillsService {
       action: AUDIT_ACTIONS.UTILITY_BILL_UPDATED,
       resourceType: RESOURCE_TYPES.UTILITY_BILL,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { propertyId, fields: Object.keys(dto) },
     });
@@ -104,9 +105,9 @@ export class UtilityBillsService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<void> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
 
-    const deleted = await this.repo.deleteInScope(id, propertyId, currentUser.companyId);
+    const deleted = await this.repo.deleteInScope(id, propertyId, tenantId(currentUser));
     if (!deleted) {
       throw new AppError('Utility bill not found', 404);
     }
@@ -115,7 +116,7 @@ export class UtilityBillsService {
       action: AUDIT_ACTIONS.UTILITY_BILL_DELETED,
       resourceType: RESOURCE_TYPES.UTILITY_BILL,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { propertyId },
     });

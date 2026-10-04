@@ -22,7 +22,8 @@ export interface AuditContext {
 /** The principal executing the action, when known. Both are nullable. */
 export interface AuditActor {
   userId?: number;
-  companyId?: number;
+  // A SUPER_ADMIN is platform-scoped and belongs to no company (companyId null).
+  companyId?: number | null;
 }
 
 export interface AuditEvent {

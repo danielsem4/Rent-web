@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import { AppError } from '../../../shared/errors/AppError';
 import type { CurrentUser } from '../../../shared/middlewares/authenticate';
+import { tenantId } from '../../../shared/utils/tenant';
 import { AUDIT_ACTIONS, RESOURCE_TYPES } from '../../../shared/constants/auditActions';
 import type { AuditContext, IAuditLogger } from '../../../shared/audit/auditLogger';
 import { generateToken, hashToken } from '../../../shared/utils/token';
@@ -31,7 +32,7 @@ export class AppAccessService {
   ) {}
 
   async getStatus(workerId: number, currentUser: CurrentUser): Promise<AppAccessStatus> {
-    const status = await this.repo.getStatus(workerId, currentUser.companyId);
+    const status = await this.repo.getStatus(workerId, tenantId(currentUser));
     if (!status) {
       throw new AppError('Worker not found', 404);
     }
@@ -44,7 +45,7 @@ export class AppAccessService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<AppAccessStatus> {
-    const worker = await this.repo.getWorkerPhone(workerId, currentUser.companyId);
+    const worker = await this.repo.getWorkerPhone(workerId, tenantId(currentUser));
     if (!worker) {
       throw new AppError('Worker not found', 404);
     }
@@ -66,7 +67,7 @@ export class AppAccessService {
     try {
       ok = await this.repo.enable({
         workerId,
-        companyId: currentUser.companyId,
+        companyId: tenantId(currentUser),
         phoneDisplay: rawPhone,
         phoneE164,
         qrTokenHash: hashToken(rawToken),
@@ -87,7 +88,7 @@ export class AppAccessService {
       action: AUDIT_ACTIONS.WORKER_APP_ACCESS_ENABLED,
       resourceType: RESOURCE_TYPES.WORKER_AUTH,
       resourceId: String(workerId),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       // Never the phone or the token — just the fact + fields touched (§18).
       metadata: { workerId, phoneUpdated: dto.phone != null },
@@ -104,7 +105,7 @@ export class AppAccessService {
     const rawToken = generateToken();
     const ok = await this.repo.rotateQr(
       workerId,
-      currentUser.companyId,
+      tenantId(currentUser),
       hashToken(rawToken),
       encryptField(rawToken),
     );
@@ -115,7 +116,7 @@ export class AppAccessService {
       action: AUDIT_ACTIONS.WORKER_APP_ACCESS_QR_ROTATED,
       resourceType: RESOURCE_TYPES.WORKER_AUTH,
       resourceId: String(workerId),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { workerId },
     });
@@ -127,7 +128,7 @@ export class AppAccessService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<AppAccessStatus> {
-    const ok = await this.repo.disableAndBump(workerId, currentUser.companyId);
+    const ok = await this.repo.disableAndBump(workerId, tenantId(currentUser));
     if (!ok) {
       throw new AppError('Worker not found', 404);
     }
@@ -139,7 +140,7 @@ export class AppAccessService {
       action: AUDIT_ACTIONS.WORKER_APP_ACCESS_DISABLED,
       resourceType: RESOURCE_TYPES.WORKER_AUTH,
       resourceId: String(workerId),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { workerId },
     });
@@ -148,7 +149,7 @@ export class AppAccessService {
 
   /** Render the worker's current QR as a PNG (manager-only, tenant-scoped). */
   async renderQr(workerId: number, currentUser: CurrentUser): Promise<Buffer> {
-    const row = await this.repo.getQrToken(workerId, currentUser.companyId);
+    const row = await this.repo.getQrToken(workerId, tenantId(currentUser));
     if (!row) {
       throw new AppError('Worker not found', 404);
     }

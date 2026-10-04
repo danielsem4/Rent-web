@@ -13,6 +13,7 @@ import {
   ExpenseCategory,
 } from '@prisma/client';
 import { encryptField } from '../src/shared/utils/fieldEncryption';
+import { MODULE_KEYS } from '../src/shared/modules/registry';
 
 // Keep the seed's own client (not the lib singleton) — this script runs outside
 // the app process.
@@ -24,7 +25,6 @@ const prisma = new PrismaClient({ adapter });
 const DEV_PASSWORD = 'password123';
 
 // Clearly-labelled dev data.
-const PLATFORM_COMPANY = 'Rent+ Platform (Internal)';
 const COMPANY_A = 'Company A (Dev)';
 const COMPANY_B = 'Company B (Dev)';
 
@@ -50,6 +50,20 @@ async function ensureCompany(name: string): Promise<{ id: number; reused: boolea
 }
 
 /**
+ * Enable a set of feature modules for a company (modular multi-tenancy). Idempotent
+ * per (companyId, moduleKey): a re-run flips `enabled` back on without duplicating.
+ */
+async function ensureCompanyModules(companyId: number, moduleKeys: string[]): Promise<void> {
+  for (const moduleKey of moduleKeys) {
+    await prisma.companyModule.upsert({
+      where: { companyId_moduleKey: { companyId, moduleKey } },
+      update: { enabled: true },
+      create: { companyId, moduleKey, enabled: true },
+    });
+  }
+}
+
+/**
  * Upsert a user by unique email. On re-run we sync name/role/companyId (so drift
  * is corrected) but deliberately DO NOT touch `passwordHash` — re-running the
  * seed must not rehash/rotate an existing account's password.
@@ -58,7 +72,8 @@ async function ensureUser(opts: {
   email: string;
   name: string;
   role: Role;
-  companyId: number;
+  // null for a platform-scoped SUPER_ADMIN (belongs to no company).
+  companyId: number | null;
 }): Promise<{ reused: boolean }> {
   const existing = await prisma.user.findUnique({ where: { email: opts.email } });
   const passwordHash = await bcrypt.hash(DEV_PASSWORD, 10);
@@ -355,21 +370,25 @@ function daysFromNow(days: number): Date {
 }
 
 async function main() {
-  // ── Rent+ Platform (internal) ─────────────────────────────────────────────
-  // NOTE (temporary modeling decision): the schema requires `companyId` on every
-  // user (NOT NULL). To satisfy that without touching nullability, SUPER_ADMIN is
-  // bound to a clearly-named internal platform company rather than any real
-  // customer company. Revisit if/when the platform-vs-customer model changes.
-  const platform = await ensureCompany(PLATFORM_COMPANY);
+  // ── Platform admin ────────────────────────────────────────────────────────
+  // SUPER_ADMIN is a platform-scoped principal that belongs to NO company
+  // (companyId null) — it manages companies and their feature modules via the
+  // /api/admin/companies API. (Previously it was bound to an internal placeholder
+  // company because companyId was NOT NULL; that workaround is gone.)
   await ensureUser({
     email: 'super@rentplus.dev',
     name: 'Rent+ Super Admin',
     role: Role.SUPER_ADMIN,
-    companyId: platform.id,
+    companyId: null,
   });
 
   // ── Company A (full role coverage) ────────────────────────────────────────
   const companyA = await ensureCompany(COMPANY_A);
+  // Enable both shipped feature modules so the full dev dataset is reachable.
+  await ensureCompanyModules(companyA.id, [
+    MODULE_KEYS.CORE_RENT,
+    MODULE_KEYS.FOREIGN_WORKERS,
+  ]);
   await ensureUser({
     email: 'manager-a@rentplus.dev',
     name: 'Company A Manager',
@@ -735,6 +754,10 @@ async function main() {
 
   // ── Company B (second independent tenant for future multi-tenant tests) ─────
   const companyB = await ensureCompany(COMPANY_B);
+  await ensureCompanyModules(companyB.id, [
+    MODULE_KEYS.CORE_RENT,
+    MODULE_KEYS.FOREIGN_WORKERS,
+  ]);
   await ensureUser({
     email: 'manager-b@rentplus.dev',
     name: 'Company B Manager',
@@ -771,9 +794,9 @@ async function main() {
 
   // ── Summary ────────────────────────────────────────────────────────────────
   console.log('\nSeed complete. Development structure:');
-  console.log(`  ${PLATFORM_COMPANY}`);
+  console.log('  Platform admin (no company)');
   console.log('    └── super@rentplus.dev            (SUPER_ADMIN)');
-  console.log(`  ${COMPANY_A}`);
+  console.log(`  ${COMPANY_A}  [modules: core-rent, foreign-workers]`);
   console.log('    ├── manager-a@rentplus.dev        (COMPANY_MANAGER)');
   console.log('    ├── worker-a@rentplus.dev         (COMPANY_WORKER)');
   console.log('    └── renter-a@rentplus.dev         (RENTER)');

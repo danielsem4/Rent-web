@@ -29,6 +29,9 @@ export interface WorkerPrincipal {
   workerId: number;
   companyId: number;
   tokenVersion: number;
+  // The worker's company enabled-module keys (modular multi-tenancy). Checked by
+  // requireWorkerModule on the portal; loaded here so no extra per-request query.
+  enabledModules: string[];
 }
 
 declare global {
@@ -99,10 +102,17 @@ export async function authenticateWorker(
       return;
     }
 
+    // Fail closed if the worker's company has been disabled by the platform admin.
+    if (!worker.companyActive) {
+      next(new AppError('Authentication required', 401));
+      return;
+    }
+
     req.workerPrincipal = {
       workerId: worker.id,
       companyId: worker.companyId,
       tokenVersion: worker.tokenVersion,
+      enabledModules: worker.enabledModules,
     };
     next();
   } catch {

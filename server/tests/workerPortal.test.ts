@@ -56,6 +56,9 @@ interface WorkerRow {
   propertyId: number | null;
   authEnabled: boolean;
   tokenVersion: number;
+  // The company relation authenticateWorker's query includes (modular tenancy):
+  // active + entitled to foreign-workers so the portal's requireWorkerModule passes.
+  company: { isActive: boolean; companyModules: { moduleKey: string }[] };
 }
 interface InspectionRow {
   id: number;
@@ -123,9 +126,10 @@ function bearer(workerId: number, companyId: number): string {
 }
 
 beforeEach(() => {
+  const company = { isActive: true, companyModules: [{ moduleKey: 'foreign-workers' }] };
   workers = [
-    { id: WORKER_A_ID, companyId: COMPANY_A, propertyId: PROPERTY_A, authEnabled: true, tokenVersion: 0 },
-    { id: WORKER_NO_PROP_ID, companyId: COMPANY_A, propertyId: null, authEnabled: true, tokenVersion: 0 },
+    { id: WORKER_A_ID, companyId: COMPANY_A, propertyId: PROPERTY_A, authEnabled: true, tokenVersion: 0, company },
+    { id: WORKER_NO_PROP_ID, companyId: COMPANY_A, propertyId: null, authEnabled: true, tokenVersion: 0, company },
   ];
   inspections = [
     {

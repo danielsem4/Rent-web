@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { AppError } from '../../../shared/errors/AppError';
 import type { CurrentUser } from '../../../shared/middlewares/authenticate';
+import { tenantId } from '../../../shared/utils/tenant';
 import { AUDIT_ACTIONS, RESOURCE_TYPES } from '../../../shared/constants/auditActions';
 import type { AuditContext, IAuditLogger } from '../../../shared/audit/auditLogger';
 import type { IFileStorage } from '../../../shared/storage/fileStorage';
@@ -39,8 +40,8 @@ export class WorkerDocumentsService {
   ) {}
 
   async list(workerId: number, currentUser: CurrentUser): Promise<WorkerDocumentItem[]> {
-    await this.assertWorkerInCompany(workerId, currentUser.companyId);
-    return this.repo.listByWorker(workerId, currentUser.companyId);
+    await this.assertWorkerInCompany(workerId, tenantId(currentUser));
+    return this.repo.listByWorker(workerId, tenantId(currentUser));
   }
 
   async upload(
@@ -50,7 +51,7 @@ export class WorkerDocumentsService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<WorkerDocumentItem> {
-    await this.assertWorkerInCompany(workerId, currentUser.companyId);
+    await this.assertWorkerInCompany(workerId, tenantId(currentUser));
 
     if (!file) {
       throw new AppError('A file is required', 400);
@@ -73,7 +74,7 @@ export class WorkerDocumentsService {
     let record;
     try {
       record = await this.repo.create({
-        companyId: currentUser.companyId,
+        companyId: tenantId(currentUser),
         workerId,
         docType: dto.docType,
         originalName: sanitizeFilename(file.originalname),
@@ -92,7 +93,7 @@ export class WorkerDocumentsService {
       action: AUDIT_ACTIONS.WORKER_DOCUMENT_UPLOADED,
       resourceType: RESOURCE_TYPES.WORKER_DOCUMENT,
       resourceId: String(record.id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       // Non-sensitive metadata only — never the original filename or bytes (§18).
       metadata: { workerId, docType: dto.docType },
@@ -107,7 +108,7 @@ export class WorkerDocumentsService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<DownloadResult> {
-    const doc = await this.repo.findByIdInCompany(id, workerId, currentUser.companyId);
+    const doc = await this.repo.findByIdInCompany(id, workerId, tenantId(currentUser));
     if (!doc) {
       throw new AppError('Document not found', 404);
     }
@@ -117,7 +118,7 @@ export class WorkerDocumentsService {
       action: AUDIT_ACTIONS.WORKER_DOCUMENT_DOWNLOADED,
       resourceType: RESOURCE_TYPES.WORKER_DOCUMENT,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { workerId, docType: doc.docType },
     });
@@ -131,19 +132,19 @@ export class WorkerDocumentsService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<void> {
-    const doc = await this.repo.findByIdInCompany(id, workerId, currentUser.companyId);
+    const doc = await this.repo.findByIdInCompany(id, workerId, tenantId(currentUser));
     if (!doc) {
       throw new AppError('Document not found', 404);
     }
     // Remove the row first (tenant-scoped); then best-effort delete the object.
-    await this.repo.deleteInCompany(id, workerId, currentUser.companyId);
+    await this.repo.deleteInCompany(id, workerId, tenantId(currentUser));
     await this.storage.delete(doc.storageKey).catch(() => undefined);
 
     await this.audit.log({
       action: AUDIT_ACTIONS.WORKER_DOCUMENT_DELETED,
       resourceType: RESOURCE_TYPES.WORKER_DOCUMENT,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { workerId, docType: doc.docType },
     });

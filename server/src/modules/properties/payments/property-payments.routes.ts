@@ -8,6 +8,7 @@ import { PaymentsRepository } from '../../payments/payments.repository';
 import { PaymentsService } from '../../payments/payments.service';
 import { PropertiesRepository } from '../properties.repository';
 import { assertPropertyInCompany } from '../shared/parentProperty';
+import { tenantId } from '../../../shared/utils/tenant';
 
 function parseId(raw: unknown, notFoundMessage: string): number {
   const id = Number(raw);
@@ -35,7 +36,7 @@ export function createPropertyPaymentsRouter(): Router {
   router.get('/', canRead, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const propertyId = parseId(req.params.propertyId, 'Property not found');
-      await assertPropertyInCompany(properties, propertyId, req.currentUser!.companyId);
+      await assertPropertyInCompany(properties, propertyId, tenantId(req.currentUser));
       const list = await payments.listByProperty(propertyId, req.currentUser!);
       res.json({ payments: list });
     } catch (err) {

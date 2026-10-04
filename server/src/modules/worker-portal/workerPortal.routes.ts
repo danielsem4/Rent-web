@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { authenticateWorker } from '../../shared/middlewares/authenticateWorker';
+import { requireWorkerModule } from '../../shared/middlewares/requireModule';
+import { MODULE_KEYS } from '../../shared/modules/registry';
 import { validateRequest } from '../../shared/middlewares/validateRequest';
 import type { IAuditLogger } from '../../shared/audit/auditLogger';
 import type { IFileStorage } from '../../shared/storage/fileStorage';
@@ -33,7 +35,7 @@ export function createWorkerPortalRouter(deps: WorkerPortalRouterDeps): Router {
   const router = Router();
 
   // Worker principal required for everything below.
-  router.use(authenticateWorker);
+  router.use(authenticateWorker, requireWorkerModule(MODULE_KEYS.FOREIGN_WORKERS));
 
   router.get('/me', controller.me);
   router.get('/documents', controller.documents);

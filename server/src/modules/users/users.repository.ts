@@ -43,7 +43,7 @@ function toSafeUser(user: {
   email: string;
   name: string;
   role: Role;
-  companyId: number;
+  companyId: number | null;
 }): SafeUser {
   return {
     id: user.id,
@@ -60,7 +60,7 @@ function toUserListItem(user: {
   email: string;
   name: string;
   role: Role;
-  companyId: number;
+  companyId: number | null;
   isActive: boolean;
 }): UserListItem {
   return { ...toSafeUser(user), isActive: user.isActive };

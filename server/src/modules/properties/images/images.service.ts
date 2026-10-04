@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { AppError } from '../../../shared/errors/AppError';
 import type { CurrentUser } from '../../../shared/middlewares/authenticate';
+import { tenantId } from '../../../shared/utils/tenant';
 import { AUDIT_ACTIONS, RESOURCE_TYPES } from '../../../shared/constants/auditActions';
 import type { AuditContext, IAuditLogger } from '../../../shared/audit/auditLogger';
 import type { IFileStorage } from '../../../shared/storage/fileStorage';
@@ -35,8 +36,8 @@ export class PropertyImagesService {
   ) {}
 
   async list(propertyId: number, currentUser: CurrentUser): Promise<PropertyImageItem[]> {
-    await this.assertPropertyInCompany(propertyId, currentUser.companyId);
-    return this.repo.listByProperty(propertyId, currentUser.companyId);
+    await this.assertPropertyInCompany(propertyId, tenantId(currentUser));
+    return this.repo.listByProperty(propertyId, tenantId(currentUser));
   }
 
   async upload(
@@ -45,7 +46,7 @@ export class PropertyImagesService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<PropertyImageItem> {
-    await this.assertPropertyInCompany(propertyId, currentUser.companyId);
+    await this.assertPropertyInCompany(propertyId, tenantId(currentUser));
 
     if (!file) {
       throw new AppError('A file is required', 400);
@@ -68,7 +69,7 @@ export class PropertyImagesService {
     let record;
     try {
       record = await this.repo.create({
-        companyId: currentUser.companyId,
+        companyId: tenantId(currentUser),
         propertyId,
         originalName: sanitizeFilename(file.originalname),
         storageKey,
@@ -86,7 +87,7 @@ export class PropertyImagesService {
       action: AUDIT_ACTIONS.PROPERTY_IMAGE_UPLOADED,
       resourceType: RESOURCE_TYPES.PROPERTY_IMAGE,
       resourceId: String(record.id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       // Non-sensitive metadata only — never the original filename or bytes (§18).
       metadata: { propertyId },
@@ -101,7 +102,7 @@ export class PropertyImagesService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<DownloadResult> {
-    const image = await this.repo.findByIdInCompany(id, propertyId, currentUser.companyId);
+    const image = await this.repo.findByIdInCompany(id, propertyId, tenantId(currentUser));
     if (!image) {
       throw new AppError('Image not found', 404);
     }
@@ -111,7 +112,7 @@ export class PropertyImagesService {
       action: AUDIT_ACTIONS.PROPERTY_IMAGE_DOWNLOADED,
       resourceType: RESOURCE_TYPES.PROPERTY_IMAGE,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { propertyId },
     });
@@ -125,19 +126,19 @@ export class PropertyImagesService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<void> {
-    const image = await this.repo.findByIdInCompany(id, propertyId, currentUser.companyId);
+    const image = await this.repo.findByIdInCompany(id, propertyId, tenantId(currentUser));
     if (!image) {
       throw new AppError('Image not found', 404);
     }
     // Remove the row first (tenant-scoped); then best-effort delete the object.
-    await this.repo.deleteInCompany(id, propertyId, currentUser.companyId);
+    await this.repo.deleteInCompany(id, propertyId, tenantId(currentUser));
     await this.storage.delete(image.storageKey).catch(() => undefined);
 
     await this.audit.log({
       action: AUDIT_ACTIONS.PROPERTY_IMAGE_DELETED,
       resourceType: RESOURCE_TYPES.PROPERTY_IMAGE,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { propertyId },
     });

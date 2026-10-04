@@ -24,7 +24,7 @@ describe("useLogout", () => {
       value: { replace },
     });
     useAuthStore.setState({
-      user: { id: 1, email: "a@b.c", name: "A", role: "RENTER" },
+      user: { id: 1, email: "a@b.c", name: "A", role: "RENTER", companyId: 1, enabledModules: [] },
       userId: 1,
     });
     useMfaStore.setState({ mfaToken: "tok" });

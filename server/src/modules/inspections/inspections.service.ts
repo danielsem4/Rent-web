@@ -1,4 +1,5 @@
 import type { CurrentUser } from '../../shared/middlewares/authenticate';
+import { tenantId } from '../../shared/utils/tenant';
 import type { IInspectionsRepository, InspectionListItem } from './inspections.repository';
 
 /**
@@ -10,6 +11,6 @@ export class InspectionsService {
   constructor(private readonly repo: IInspectionsRepository) {}
 
   async list(currentUser: CurrentUser): Promise<InspectionListItem[]> {
-    return this.repo.listByCompany(currentUser.companyId);
+    return this.repo.listByCompany(tenantId(currentUser));
   }
 }

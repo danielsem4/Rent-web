@@ -1,11 +1,13 @@
 import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Home, Building2, Users, UsersRound, Settings } from "lucide-react";
+import { Home, Building2, Users, UsersRound, Settings, Building } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useInitAuth } from "@/hooks/common/useInitAuth";
 import { useAuthStore } from "@/store/useAuthStore";
 import { ROLES } from "@/common/types/role";
 import type { Role } from "@/common/types/role";
+import { MODULE_KEYS } from "@/common/types/module";
+import type { ModuleKey } from "@/common/types/module";
 import SidebarLogout from "@/common/components/SidebarLogout";
 import {
   Sidebar,
@@ -29,6 +31,8 @@ interface NavItem {
   icon: LucideIcon;
   /** If set, only these roles see the item (UX only — server enforces access). */
   roles?: Role[];
+  /** If set, only companies entitled to this module see the item (UX only). */
+  module?: ModuleKey;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -38,18 +42,26 @@ const NAV_ITEMS: NavItem[] = [
     labelKey: "nav.properties",
     icon: Building2,
     roles: [ROLES.COMPANY_MANAGER, ROLES.COMPANY_WORKER],
+    module: MODULE_KEYS.CORE_RENT,
   },
   {
     to: "/workers",
     labelKey: "nav.workers",
     icon: UsersRound,
     roles: [ROLES.COMPANY_MANAGER, ROLES.COMPANY_WORKER],
+    module: MODULE_KEYS.FOREIGN_WORKERS,
   },
   {
     to: "/employees",
     labelKey: "nav.employees",
     icon: Users,
     roles: [ROLES.COMPANY_MANAGER],
+  },
+  {
+    to: "/admin/companies",
+    labelKey: "nav.companies",
+    icon: Building,
+    roles: [ROLES.SUPER_ADMIN],
   },
   { to: "/settings", labelKey: "nav.settings", icon: Settings },
 ];
@@ -58,6 +70,7 @@ export default function ProtectedLayout() {
   const { t, i18n } = useTranslation();
   const { isLoading, isAuthenticated } = useInitAuth();
   const role = useAuthStore((s) => s.user?.role);
+  const enabledModules = useAuthStore((s) => s.user?.enabledModules);
   const userName = useAuthStore((s) => s.user?.name);
   const { pathname } = useLocation();
 
@@ -75,9 +88,11 @@ export default function ProtectedLayout() {
 
   // RTL locales (he/ar) put the sidebar on the inline-end (right) side.
   const side = i18n.dir() === "rtl" ? "right" : "left";
-  const items = NAV_ITEMS.filter(
-    (item) => !item.roles || (role != null && item.roles.includes(role)),
-  );
+  const items = NAV_ITEMS.filter((item) => {
+    const roleOk = !item.roles || (role != null && item.roles.includes(role));
+    const moduleOk = !item.module || (enabledModules?.includes(item.module) ?? false);
+    return roleOk && moduleOk;
+  });
 
   return (
     <SidebarProvider>

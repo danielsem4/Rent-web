@@ -1,5 +1,6 @@
 import { AppError } from '../../shared/errors/AppError';
 import type { CurrentUser } from '../../shared/middlewares/authenticate';
+import { tenantId } from '../../shared/utils/tenant';
 import type { SafeUser } from '../auth/auth.repository';
 import { hashPassword } from '../../shared/utils/password';
 import { generateToken } from '../../shared/utils/token';
@@ -17,11 +18,11 @@ export class UsersService {
   ) {}
 
   async list(currentUser: CurrentUser): Promise<UserListItem[]> {
-    return this.repo.listByCompany(currentUser.companyId);
+    return this.repo.listByCompany(tenantId(currentUser));
   }
 
   async get(id: number, currentUser: CurrentUser): Promise<SafeUser> {
-    const user = await this.repo.findByIdInCompany(id, currentUser.companyId);
+    const user = await this.repo.findByIdInCompany(id, tenantId(currentUser));
     if (!user) {
       throw new AppError('User not found', 404);
     }
@@ -50,7 +51,7 @@ export class UsersService {
       role: dto.role,
       passwordHash: placeholderHash,
       // Company ownership always comes from the trusted context, never the body.
-      companyId: currentUser.companyId,
+      companyId: tenantId(currentUser),
       isActive: false,
     });
 
@@ -61,7 +62,7 @@ export class UsersService {
       action: AUDIT_ACTIONS.USER_CREATED,
       resourceType: RESOURCE_TYPES.USER,
       resourceId: String(user.id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { role: dto.role },
     });
@@ -91,12 +92,12 @@ export class UsersService {
       }
     }
 
-    const updated = await this.repo.updateInCompany(id, currentUser.companyId, dto);
+    const updated = await this.repo.updateInCompany(id, tenantId(currentUser), dto);
     if (!updated) {
       throw new AppError('User not found', 404);
     }
 
-    const actor = { userId: currentUser.userId, companyId: currentUser.companyId };
+    const actor = { userId: currentUser.userId, companyId: tenantId(currentUser) };
     await this.audit.log({
       action: AUDIT_ACTIONS.USER_UPDATED,
       resourceType: RESOURCE_TYPES.USER,

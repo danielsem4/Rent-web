@@ -22,7 +22,7 @@ import {
 import { signMfaToken, verifyMfaToken } from '../../shared/utils/mfaToken';
 import type { AccountMailer } from '../../shared/notifications/mailer';
 import type { AuditContext, IAuditLogger } from '../../shared/audit/auditLogger';
-import type { AuthState, IAuthRepository, SafeUser } from './auth.repository';
+import type { AuthState, AuthenticatedUser, IAuthRepository } from './auth.repository';
 import type { IRefreshTokenRepository } from './refreshToken.repository';
 import type { IMfaRepository } from './mfa.repository';
 import type { LoginDto } from './auth.schema';
@@ -36,7 +36,7 @@ export interface SessionTokens {
 /** Login succeeded and MFA was not required — a full session was minted. */
 export interface SessionResult {
   kind: 'session';
-  user: SafeUser;
+  user: AuthenticatedUser;
   tokens: SessionTokens;
 }
 
@@ -62,7 +62,12 @@ export class AuthService {
     private readonly mailer: AccountMailer,
   ) {}
 
-  private sign(userId: number, role: Role, companyId: number, tokenVersion: number): string {
+  private sign(
+    userId: number,
+    role: Role,
+    companyId: number | null,
+    tokenVersion: number,
+  ): string {
     const secret = process.env['JWT_SECRET'];
     if (!secret) {
       throw new AppError('JWT_SECRET is not configured', 500);
@@ -92,8 +97,8 @@ export class AuthService {
 
   /** Mint an access + refresh token pair (fresh family), audit, and package the result. */
   private async issueSession(
-    auth: { id: number; role: Role; companyId: number; tokenVersion: number },
-    safeUser: SafeUser,
+    auth: { id: number; role: Role; companyId: number | null; tokenVersion: number },
+    safeUser: AuthenticatedUser,
     context: AuditContext,
     action: AuditAction,
     metadata?: Record<string, unknown>,
@@ -154,16 +159,14 @@ export class AuthService {
       throw new AppError('Invalid email or password', 401);
     }
 
-    const safeUser: SafeUser = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      companyId: user.companyId,
-    };
-
     // 2FA is mandatory for privileged roles (SECURITY_PRINCIPLES.md §3/§24).
     if (!isPrivileged(user.role)) {
+      // Project via findById so the session user carries enabledModules (loaded
+      // from the company's entitlements) — the same shape /me returns.
+      const safeUser = await this.repo.findById(user.id);
+      if (!safeUser) {
+        throw new AppError('Invalid email or password', 401);
+      }
       return this.issueSession(user, safeUser, context, AUDIT_ACTIONS.AUTH_LOGIN_SUCCESS, {
         result: 'success',
       });
@@ -194,7 +197,7 @@ export class AuthService {
     await this.mailer.sendMfaCode(email, code);
   }
 
-  async getMe(userId: number): Promise<SafeUser> {
+  async getMe(userId: number): Promise<AuthenticatedUser> {
     const user = await this.repo.findById(userId);
     if (!user) {
       throw new AppError('User not found', 404);

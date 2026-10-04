@@ -5,6 +5,11 @@ export interface IUser {
   email: string;
   name: string;
   role: Role;
+  // null for a platform-scoped SUPER_ADMIN (belongs to no company).
+  companyId: number | null;
+  // Feature-module keys the user's company is entitled to (empty for SUPER_ADMIN).
+  // Drives nav/route gating — UX only; the server is the real boundary.
+  enabledModules: string[];
 }
 
 /**

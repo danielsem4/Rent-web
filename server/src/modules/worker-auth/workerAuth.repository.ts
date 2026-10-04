@@ -1,4 +1,17 @@
 import prisma from '../../lib/prisma';
+import { MODULE_KEYS } from '../../shared/modules/registry';
+
+/**
+ * Prisma `where` fragment restricting a worker's company to active + entitled to
+ * the foreign-workers module. Spread into the login lookups so a worker in a
+ * disabled/non-entitled company is invisible (fail closed, enumeration-safe).
+ */
+const FOREIGN_WORKERS_COMPANY_WHERE = {
+  company: {
+    isActive: true,
+    companyModules: { some: { moduleKey: MODULE_KEYS.FOREIGN_WORKERS, enabled: true } },
+  },
+} as const;
 
 /**
  * Persistence for the foreign-worker login principal (SECURITY_PRINCIPLES.md §3/§4).
@@ -13,6 +26,11 @@ export interface WorkerAuthState {
   companyId: number;
   authEnabled: boolean;
   tokenVersion: number;
+  // Modular multi-tenancy: the worker's company active flag + its enabled module
+  // keys, so authenticateWorker can fail closed on a disabled company and
+  // requireWorkerModule can gate the portal (no extra per-request query).
+  companyActive: boolean;
+  enabledModules: string[];
 }
 
 /** Login target resolved during qr/phone identification and re-loaded on verify. */
@@ -54,15 +72,39 @@ export class WorkerAuthRepository implements IWorkerAuthRepository {
   async findAuthState(workerId: number): Promise<WorkerAuthState | null> {
     const worker = await prisma.worker.findUnique({
       where: { id: workerId },
-      select: { id: true, companyId: true, authEnabled: true, tokenVersion: true },
+      select: {
+        id: true,
+        companyId: true,
+        authEnabled: true,
+        tokenVersion: true,
+        company: {
+          select: {
+            isActive: true,
+            companyModules: { where: { enabled: true }, select: { moduleKey: true } },
+          },
+        },
+      },
     });
-    return worker;
+    if (!worker) return null;
+    return {
+      id: worker.id,
+      companyId: worker.companyId,
+      authEnabled: worker.authEnabled,
+      tokenVersion: worker.tokenVersion,
+      companyActive: worker.company.isActive,
+      enabledModules: worker.company.companyModules.map((m) => m.moduleKey),
+    };
   }
 
   async findLoginByQrTokenHash(qrTokenHash: string): Promise<WorkerLoginTarget | null> {
     // The qrTokenHash column is unique; a rotated/unknown token misses (null).
-    const worker = await prisma.worker.findUnique({
-      where: { qrTokenHash },
+    // ENTITLEMENT GATE (modular multi-tenancy): also require the worker's company
+    // to be active AND entitled to the foreign-workers module. A worker in a
+    // non-entitled/disabled company simply misses here (null) → the service follows
+    // its existing "unknown worker" path (no OTP, generic response), so disabling
+    // the module is enumeration-safe (reveals nothing about company/worker existence).
+    const worker = await prisma.worker.findFirst({
+      where: { qrTokenHash, ...FOREIGN_WORKERS_COMPANY_WHERE },
       select: LOGIN_SELECT,
     });
     return worker;
@@ -72,9 +114,10 @@ export class WorkerAuthRepository implements IWorkerAuthRepository {
     // The partial-unique index (WHERE authEnabled) guarantees at most one enabled
     // match, but we defensively use findMany + length check: any non-unique result
     // (e.g. legacy data) is treated as NO match (fail closed) rather than fanning
-    // an OTP to an ambiguous set.
+    // an OTP to an ambiguous set. The company entitlement gate (see
+    // findLoginByQrTokenHash) is applied here too — enumeration-safe.
     const matches = await prisma.worker.findMany({
-      where: { phoneE164, authEnabled: true },
+      where: { phoneE164, authEnabled: true, ...FOREIGN_WORKERS_COMPANY_WHERE },
       select: LOGIN_SELECT,
       take: 2,
     });

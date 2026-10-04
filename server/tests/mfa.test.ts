@@ -5,7 +5,7 @@ import type {
   IAuthRepository,
   UserRecord,
   AuthState,
-  SafeUser,
+  AuthenticatedUser,
 } from '../src/modules/auth/auth.repository';
 import type { IRefreshTokenRepository } from '../src/modules/auth/refreshToken.repository';
 import type { IMfaRepository, EmailOtpState } from '../src/modules/auth/mfa.repository';
@@ -25,13 +25,13 @@ const USER_ID = 1;
 const COMPANY_ID = 7;
 
 function authState(over: Partial<AuthState> = {}): AuthState {
-  return { id: USER_ID, role: Role.COMPANY_MANAGER, companyId: COMPANY_ID, isActive: true, tokenVersion: 0, ...over };
+  return { id: USER_ID, role: Role.COMPANY_MANAGER, companyId: COMPANY_ID, isActive: true, tokenVersion: 0, companyActive: true, enabledModules: [], ...over };
 }
-function safeUser(over: Partial<SafeUser> = {}): SafeUser {
-  return { id: USER_ID, email: 'm@test.dev', name: 'M', role: Role.COMPANY_MANAGER, companyId: COMPANY_ID, ...over };
+function safeUser(over: Partial<AuthenticatedUser> = {}): AuthenticatedUser {
+  return { id: USER_ID, email: 'm@test.dev', name: 'M', role: Role.COMPANY_MANAGER, companyId: COMPANY_ID, enabledModules: [], ...over };
 }
 
-function makeAuthRepo(opts: { record?: UserRecord; state?: AuthState; user?: SafeUser }): IAuthRepository {
+function makeAuthRepo(opts: { record?: UserRecord; state?: AuthState; user?: AuthenticatedUser }): IAuthRepository {
   return {
     findByEmail: vi.fn(async () => opts.record ?? null),
     findById: vi.fn(async () => opts.user ?? null),
@@ -131,7 +131,15 @@ describe('AuthService.login — 2FA branching', () => {
     const mfa = makeMfaRepo();
     const { mailer, sent } = makeMailer();
     const { audit } = makeAudit();
-    const svc = new AuthService(makeAuthRepo({ record }), refreshRepo, mfa.repo, audit, mailer);
+    // Non-privileged login now projects the session user via findById (so it
+    // carries enabledModules) — provide it in the mock.
+    const svc = new AuthService(
+      makeAuthRepo({ record, user: safeUser({ role: Role.RENTER }) }),
+      refreshRepo,
+      mfa.repo,
+      audit,
+      mailer,
+    );
 
     const result = await svc.login({ email: 'm@test.dev', password: 'password123' }, CTX);
     expect(result.kind).toBe('session');

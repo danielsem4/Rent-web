@@ -1,4 +1,5 @@
 import type { CurrentUser } from '../../shared/middlewares/authenticate';
+import { tenantId } from '../../shared/utils/tenant';
 import type { IPaymentsRepository, PaymentListItem } from './payments.repository';
 
 /**
@@ -10,10 +11,10 @@ export class PaymentsService {
   constructor(private readonly repo: IPaymentsRepository) {}
 
   async list(currentUser: CurrentUser): Promise<PaymentListItem[]> {
-    return this.repo.listByCompany(currentUser.companyId);
+    return this.repo.listByCompany(tenantId(currentUser));
   }
 
   async listByProperty(propertyId: number, currentUser: CurrentUser): Promise<PaymentListItem[]> {
-    return this.repo.listByPropertyInCompany(propertyId, currentUser.companyId);
+    return this.repo.listByPropertyInCompany(propertyId, tenantId(currentUser));
   }
 }

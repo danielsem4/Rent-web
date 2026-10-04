@@ -5,6 +5,7 @@ import prisma from '../../../src/lib/prisma';
 import { createApp, type AppOverrides } from '../../../src/app';
 import type { AppConfig } from '../../../src/shared/config/env';
 import { Role } from '../../../src/shared/constants/roles';
+import { MODULE_KEYS } from '../../../src/shared/modules/registry';
 import type { SafeUser } from '../../../src/modules/auth/auth.repository';
 import type { AccountMailer } from '../../../src/shared/notifications/mailer';
 import { assertTestDatabase } from './guard';
@@ -98,13 +99,13 @@ export interface SeededUser {
   id: number;
   email: string;
   role: Role;
-  companyId: number;
+  // null for the platform-scoped SUPER_ADMIN (belongs to no company).
+  companyId: number | null;
 }
 
 export interface SeededTenants {
   companyA: number;
   companyB: number;
-  platform: number;
   managerA: SeededUser;
   workerA: SeededUser;
   renterA: SeededUser;
@@ -113,42 +114,79 @@ export interface SeededTenants {
   superAdmin: SeededUser;
 }
 
+/** Hash the shared fixture password and create a user (helper for seeders). */
+async function mkUser(
+  email: string,
+  name: string,
+  role: Role,
+  companyId: number | null,
+): Promise<SeededUser> {
+  // Email-OTP 2FA has no enrollment: privileged users simply get an emailed code
+  // at login (loginAs completes it via the captured code). Nothing to seed here.
+  const hash = await passwordHash();
+  const u = await prisma.user.create({
+    data: { email, name, role, companyId, passwordHash: hash },
+  });
+  return { id: u.id, email: u.email, role: u.role, companyId: u.companyId };
+}
+
+/** Enable feature modules for a company (modular multi-tenancy entitlements). */
+export async function enableModules(companyId: number, moduleKeys: string[]): Promise<void> {
+  await prisma.companyModule.createMany({
+    data: moduleKeys.map((moduleKey) => ({ companyId, moduleKey, enabled: true })),
+    skipDuplicates: true,
+  });
+}
+
+/**
+ * Create a company entitled to exactly `moduleKeys` plus a COMPANY_MANAGER and a
+ * COMPANY_WORKER in it. Used by the module-entitlement negative tests to build a
+ * tenant that is MISSING a given module. `emailPrefix` keeps fixtures unique.
+ */
+export async function seedCompanyWithModules(
+  name: string,
+  moduleKeys: string[],
+  emailPrefix: string,
+): Promise<{ companyId: number; manager: SeededUser; worker: SeededUser }> {
+  const company = await prisma.company.create({ data: { name } });
+  await enableModules(company.id, moduleKeys);
+  const manager = await mkUser(
+    `manager-${emailPrefix}@test.local`,
+    `Manager ${emailPrefix}`,
+    Role.COMPANY_MANAGER,
+    company.id,
+  );
+  const worker = await mkUser(
+    `worker-${emailPrefix}@test.local`,
+    `Worker ${emailPrefix}`,
+    Role.COMPANY_WORKER,
+    company.id,
+  );
+  return { companyId: company.id, manager, worker };
+}
+
 /**
  * Create deterministic, isolated tenants directly in the test DB and return the
- * REAL generated ids (never assume 1/2/3). Two customer companies plus an
- * internal platform company for the SUPER_ADMIN.
+ * REAL generated ids (never assume 1/2/3). Two customer companies — BOTH entitled
+ * to the shipped feature modules (core-rent + foreign-workers) so the existing
+ * feature suites keep passing under the module gates — plus a company-less
+ * SUPER_ADMIN (platform-scoped).
  */
 export async function seedTenants(): Promise<SeededTenants> {
-  const hash = await passwordHash();
-
   const companyA = await prisma.company.create({ data: { name: 'Company A (Test)' } });
   const companyB = await prisma.company.create({ data: { name: 'Company B (Test)' } });
-  const platform = await prisma.company.create({ data: { name: 'Rent+ Platform (Test)' } });
-
-  const mk = async (
-    email: string,
-    name: string,
-    role: Role,
-    companyId: number,
-  ): Promise<SeededUser> => {
-    // Email-OTP 2FA has no enrollment: privileged users simply get an emailed code
-    // at login (loginAs completes it via the captured code). Nothing to seed here.
-    const u = await prisma.user.create({
-      data: { email, name, role, companyId, passwordHash: hash },
-    });
-    return { id: u.id, email: u.email, role: u.role, companyId: u.companyId };
-  };
+  await enableModules(companyA.id, [MODULE_KEYS.CORE_RENT, MODULE_KEYS.FOREIGN_WORKERS]);
+  await enableModules(companyB.id, [MODULE_KEYS.CORE_RENT, MODULE_KEYS.FOREIGN_WORKERS]);
 
   return {
     companyA: companyA.id,
     companyB: companyB.id,
-    platform: platform.id,
-    managerA: await mk('manager-a@test.local', 'Manager A', Role.COMPANY_MANAGER, companyA.id),
-    workerA: await mk('worker-a@test.local', 'Worker A', Role.COMPANY_WORKER, companyA.id),
-    renterA: await mk('renter-a@test.local', 'Renter A', Role.RENTER, companyA.id),
-    managerB: await mk('manager-b@test.local', 'Manager B', Role.COMPANY_MANAGER, companyB.id),
-    workerB: await mk('worker-b@test.local', 'Worker B', Role.COMPANY_WORKER, companyB.id),
-    superAdmin: await mk('super@test.local', 'Super Admin', Role.SUPER_ADMIN, platform.id),
+    managerA: await mkUser('manager-a@test.local', 'Manager A', Role.COMPANY_MANAGER, companyA.id),
+    workerA: await mkUser('worker-a@test.local', 'Worker A', Role.COMPANY_WORKER, companyA.id),
+    renterA: await mkUser('renter-a@test.local', 'Renter A', Role.RENTER, companyA.id),
+    managerB: await mkUser('manager-b@test.local', 'Manager B', Role.COMPANY_MANAGER, companyB.id),
+    workerB: await mkUser('worker-b@test.local', 'Worker B', Role.COMPANY_WORKER, companyB.id),
+    superAdmin: await mkUser('super@test.local', 'Super Admin', Role.SUPER_ADMIN, null),
   };
 }
 

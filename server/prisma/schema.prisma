@@ -114,6 +114,9 @@ enum WorkerRequestStatus {
 model Company {
   id        Int      @id @default(autoincrement())
   name      String
+  // A disabled company locks out all of its users on their next request
+  // (authenticate re-checks this) and is the platform-admin "disable" switch.
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -130,11 +133,40 @@ model Company {
   expenses        Expense[]
   inspections     Inspection[]
   workerRequests  WorkerRequest[]
+  // Per-company feature-module entitlements (modular multi-tenancy).
+  companyModules  CompanyModule[]
+}
+
+// ─── CompanyModule ───────────────────────────────────────
+// Per-company feature-module entitlement. A row exists per (company, module) the
+// platform admin has ever toggled; `enabled` is the live switch (a disabled row is
+// kept so the toggle history is auditable). `moduleKey` is validated in code
+// against MODULE_KEYS (src/shared/modules/registry.ts) — a String column (not a
+// Prisma enum) so new modules register without a schema migration.
+
+model CompanyModule {
+  id        Int      @id @default(autoincrement())
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  moduleKey String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, moduleKey])
+  @@index([companyId])
+  @@index([moduleKey])
 }
 
 // ─── User ────────────────────────────────────────────────
-// role has no DB default (matches the live DB). companyId is required —
-// every user belongs to a Company; SUPER_ADMIN is company-bound for now.
+// role has no DB default (matches the live DB). companyId is nullable: a
+// SUPER_ADMIN is a platform-scoped principal that belongs to NO company
+// (companyId = null); every other role MUST have a company. That invariant
+// cannot be expressed in the Prisma DSL, so it is enforced by a raw-SQL CHECK
+// constraint added in the modular-entitlements migration
+// (`role = 'SUPER_ADMIN' OR "companyId" IS NOT NULL`) plus app-level checks in
+// the admin service and seed. The CHECK is additive/unmanaged — it will not
+// round-trip into this schema, so keep the app-level invariant as the backstop.
 
 model User {
   id               Int       @id @default(autoincrement())
@@ -142,8 +174,8 @@ model User {
   passwordHash     String
   name             String
   role             Role
-  companyId        Int
-  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId        Int?
+  company          Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   // Account status: a disabled user cannot authenticate and any already-issued
   // token is rejected on its next protected request (authenticate re-checks this).
   isActive         Boolean   @default(true)

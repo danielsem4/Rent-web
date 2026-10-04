@@ -1,5 +1,6 @@
 import { AppError } from '../../../shared/errors/AppError';
 import type { CurrentUser } from '../../../shared/middlewares/authenticate';
+import { tenantId } from '../../../shared/utils/tenant';
 import { AUDIT_ACTIONS, RESOURCE_TYPES } from '../../../shared/constants/auditActions';
 import type { AuditContext, IAuditLogger } from '../../../shared/audit/auditLogger';
 import { assertPropertyInCompany, type IPropertyLookup } from '../shared/parentProperty';
@@ -14,13 +15,13 @@ export class InspectionsService {
   ) {}
 
   async list(propertyId: number, currentUser: CurrentUser): Promise<InspectionRecord[]> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
-    return this.repo.listByProperty(propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
+    return this.repo.listByProperty(propertyId, tenantId(currentUser));
   }
 
   async get(propertyId: number, id: number, currentUser: CurrentUser): Promise<InspectionRecord> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
-    const item = await this.repo.findByIdInScope(id, propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
+    const item = await this.repo.findByIdInScope(id, propertyId, tenantId(currentUser));
     if (!item) {
       throw new AppError('Inspection not found', 404);
     }
@@ -33,11 +34,11 @@ export class InspectionsService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<InspectionRecord> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
 
     const item = await this.repo.createInScope({
       ...dto,
-      companyId: currentUser.companyId,
+      companyId: tenantId(currentUser),
       propertyId,
     });
 
@@ -45,7 +46,7 @@ export class InspectionsService {
       action: AUDIT_ACTIONS.INSPECTION_CREATED,
       resourceType: RESOURCE_TYPES.INSPECTION,
       resourceId: String(item.id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { propertyId, fields: Object.keys(dto) },
     });
@@ -59,9 +60,9 @@ export class InspectionsService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<InspectionRecord> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
 
-    const updated = await this.repo.updateInScope(id, propertyId, currentUser.companyId, dto);
+    const updated = await this.repo.updateInScope(id, propertyId, tenantId(currentUser), dto);
     if (!updated) {
       throw new AppError('Inspection not found', 404);
     }
@@ -70,7 +71,7 @@ export class InspectionsService {
       action: AUDIT_ACTIONS.INSPECTION_UPDATED,
       resourceType: RESOURCE_TYPES.INSPECTION,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { propertyId, fields: Object.keys(dto) },
     });
@@ -83,9 +84,9 @@ export class InspectionsService {
     currentUser: CurrentUser,
     context: AuditContext,
   ): Promise<void> {
-    await assertPropertyInCompany(this.properties, propertyId, currentUser.companyId);
+    await assertPropertyInCompany(this.properties, propertyId, tenantId(currentUser));
 
-    const deleted = await this.repo.deleteInScope(id, propertyId, currentUser.companyId);
+    const deleted = await this.repo.deleteInScope(id, propertyId, tenantId(currentUser));
     if (!deleted) {
       throw new AppError('Inspection not found', 404);
     }
@@ -94,7 +95,7 @@ export class InspectionsService {
       action: AUDIT_ACTIONS.INSPECTION_DELETED,
       resourceType: RESOURCE_TYPES.INSPECTION,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { propertyId },
     });

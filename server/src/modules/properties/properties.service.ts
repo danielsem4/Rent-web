@@ -1,5 +1,6 @@
 import { AppError } from '../../shared/errors/AppError';
 import type { CurrentUser } from '../../shared/middlewares/authenticate';
+import { tenantId } from '../../shared/utils/tenant';
 import { AUDIT_ACTIONS, RESOURCE_TYPES } from '../../shared/constants/auditActions';
 import type { AuditContext, IAuditLogger } from '../../shared/audit/auditLogger';
 import type {
@@ -26,11 +27,11 @@ export class PropertiesService {
   ) {}
 
   async list(currentUser: CurrentUser): Promise<PropertyListItem[]> {
-    return this.repo.listByCompany(currentUser.companyId);
+    return this.repo.listByCompany(tenantId(currentUser));
   }
 
   async get(id: number, currentUser: CurrentUser): Promise<PropertyRecord> {
-    const property = await this.repo.findByIdInCompany(id, currentUser.companyId);
+    const property = await this.repo.findByIdInCompany(id, tenantId(currentUser));
     if (!property) {
       throw new AppError('Property not found', 404);
     }
@@ -49,14 +50,14 @@ export class PropertiesService {
     // Company ownership always comes from the trusted context, never the body.
     const property = await this.repo.createInCompany({
       ...dto,
-      companyId: currentUser.companyId,
+      companyId: tenantId(currentUser),
     });
 
     await this.audit.log({
       action: AUDIT_ACTIONS.PROPERTY_CREATED,
       resourceType: RESOURCE_TYPES.PROPERTY,
       resourceId: String(property.id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       // Field NAMES only — never values (entryCode / owner PII must not reach the trail).
       metadata: { fields: Object.keys(dto) },
@@ -73,14 +74,14 @@ export class PropertiesService {
     // Validate the occupancy invariant against the merged (existing + patch) state,
     // since a partial update may touch only one of the two fields.
     if (dto.maxCapacity !== undefined || dto.total !== undefined) {
-      const existing = await this.repo.findByIdInCompany(id, currentUser.companyId);
+      const existing = await this.repo.findByIdInCompany(id, tenantId(currentUser));
       if (!existing) {
         throw new AppError('Property not found', 404);
       }
       assertOccupancy(dto.total ?? existing.total, dto.maxCapacity ?? existing.maxCapacity);
     }
 
-    const updated = await this.repo.updateInCompany(id, currentUser.companyId, dto);
+    const updated = await this.repo.updateInCompany(id, tenantId(currentUser), dto);
     if (!updated) {
       throw new AppError('Property not found', 404);
     }
@@ -89,7 +90,7 @@ export class PropertiesService {
       action: AUDIT_ACTIONS.PROPERTY_UPDATED,
       resourceType: RESOURCE_TYPES.PROPERTY,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       // Field NAMES only — never values.
       metadata: { fields: Object.keys(dto) },
@@ -101,9 +102,9 @@ export class PropertiesService {
     // Delete the property's stored image FILES first (tenant-scoped — a
     // foreign-company property matches no rows, so nothing is deleted). The DB
     // image rows then cascade-delete with the property below.
-    await this.images.deleteFilesForProperty(id, currentUser.companyId);
+    await this.images.deleteFilesForProperty(id, tenantId(currentUser));
 
-    const deleted = await this.repo.deleteInCompany(id, currentUser.companyId);
+    const deleted = await this.repo.deleteInCompany(id, tenantId(currentUser));
     if (!deleted) {
       throw new AppError('Property not found', 404);
     }
@@ -112,7 +113,7 @@ export class PropertiesService {
       action: AUDIT_ACTIONS.PROPERTY_DELETED,
       resourceType: RESOURCE_TYPES.PROPERTY,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
     });
   }

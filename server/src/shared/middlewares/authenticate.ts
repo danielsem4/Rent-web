@@ -16,7 +16,8 @@ import { AuthRepository } from '../../modules/auth/auth.repository';
 export interface JwtPayload {
   userId: number;
   role: Role;
-  companyId: number;
+  // null for a platform-scoped SUPER_ADMIN (belongs to no company).
+  companyId: number | null;
   tokenVersion: number;
 }
 
@@ -24,12 +25,19 @@ export interface JwtPayload {
  * The trusted, server-side authentication context for a request. `role`,
  * `companyId`, and `tokenVersion` are always resolved from the CURRENT database
  * row (by `userId`), never from the token's snapshot claims.
+ *
+ * `companyId` is null for a SUPER_ADMIN (a platform-scoped principal). Feature
+ * routes gate SUPER_ADMIN out via `authorize(...)`, so services never see a null
+ * companyId. `enabledModules` is the company's live feature-module entitlement set
+ * (empty for a SUPER_ADMIN), checked by `requireModule` — loaded here so no extra
+ * per-request query is needed.
  */
 export interface CurrentUser {
   userId: number;
   role: Role;
-  companyId: number;
+  companyId: number | null;
   tokenVersion: number;
+  enabledModules: string[];
 }
 
 declare global {
@@ -98,11 +106,19 @@ export async function authenticate(
       return;
     }
 
+    // Fail closed if the user's company has been disabled by the platform admin.
+    // A SUPER_ADMIN has no company (companyId null) and is never locked out here.
+    if (user.companyId !== null && user.companyActive === false) {
+      next(new AppError('Authentication required', 401));
+      return;
+    }
+
     req.currentUser = {
       userId: user.id,
       role: user.role,
       companyId: user.companyId,
       tokenVersion: user.tokenVersion,
+      enabledModules: user.enabledModules,
     };
     next();
   } catch {

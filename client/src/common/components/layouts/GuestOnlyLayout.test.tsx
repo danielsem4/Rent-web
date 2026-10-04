@@ -11,6 +11,8 @@ const user: IUser = {
   email: "super@rentplus.dev",
   name: "Super",
   role: "SUPER_ADMIN",
+  companyId: null,
+  enabledModules: [],
 };
 
 const renderAt = (path: string) => {

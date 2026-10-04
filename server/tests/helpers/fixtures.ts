@@ -18,7 +18,7 @@ export interface UserRow {
   passwordHash: string;
   name: string;
   role: Role;
-  companyId: number;
+  companyId: number | null;
   isActive: boolean;
   tokenVersion: number;
   mfaCodeHash: string | null;
@@ -26,9 +26,22 @@ export interface UserRow {
   mfaCodeAttempts: number;
   createdAt: Date;
   updatedAt: Date;
+  // The company relation `authenticate`'s query includes (modular multi-tenancy).
+  // By default the company is active and entitled to both shipped modules so
+  // existing route tests pass the requireModule gate unchanged.
+  company: {
+    isActive: boolean;
+    companyModules: { moduleKey: string }[];
+  } | null;
 }
 
 const DEFAULT_PASSWORD = 'password123';
+
+/** Default company relation: active + entitled to both shipped feature modules. */
+const DEFAULT_COMPANY = {
+  isActive: true,
+  companyModules: [{ moduleKey: 'core-rent' }, { moduleKey: 'foreign-workers' }],
+};
 
 /**
  * Builds an isolated, in-memory user row. `passwordHash` is a REAL bcrypt hash
@@ -55,6 +68,7 @@ export async function makeUserRow(
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     passwordHash: await bcrypt.hash(password, 10),
+    company: DEFAULT_COMPANY,
     ...rest,
   };
 }

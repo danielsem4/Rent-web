@@ -11,6 +11,7 @@ import { createInspectionsRouter } from './modules/inspections/inspections.route
 import { createWorkerAuthRouter } from './modules/worker-auth/workerAuth.routes';
 import { createWorkerPortalRouter } from './modules/worker-portal/workerPortal.routes';
 import { createAccountRouter } from './modules/account/account.routes';
+import { createCompaniesRouter } from './modules/companies/companies.routes';
 import { errorHandler } from './shared/middlewares/errorHandler';
 import { requestContext } from './shared/middlewares/requestContext';
 import { requestLogger } from './shared/middlewares/requestLogger';
@@ -169,6 +170,11 @@ export function createApp(
   app.use('/api/auth', createAuthRouter({ auditLogger, mailer }));
   app.use('/api/auth', createAccountRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
   app.use('/api/users', createUsersRouter({ mailer, clientUrl: allowedOrigin, auditLogger }));
+  // Platform administration (SUPER_ADMIN only): company + feature-module management.
+  app.use(
+    '/api/admin/companies',
+    createCompaniesRouter({ mailer, clientUrl: allowedOrigin, auditLogger }),
+  );
   app.use('/api/properties', createPropertiesRouter({ auditLogger, storage }));
   app.use(
     '/api/workers',

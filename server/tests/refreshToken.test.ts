@@ -67,7 +67,20 @@ function makeRefreshRepo() {
 function makeAuthRepo(state: AuthState | null, record?: UserRecord): IAuthRepository {
   return {
     findByEmail: vi.fn(async () => record ?? null),
-    findById: vi.fn(async () => null as SafeUser | null),
+    // Non-privileged login projects the session user via findById — derive it from
+    // the login record so it carries enabledModules (empty here).
+    findById: vi.fn(async () =>
+      record
+        ? {
+            id: record.id,
+            email: record.email,
+            name: record.name,
+            role: record.role,
+            companyId: record.companyId,
+            enabledModules: [],
+          }
+        : null,
+    ),
     findAuthById: vi.fn(async () => state),
   };
 }

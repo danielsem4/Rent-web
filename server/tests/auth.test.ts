@@ -97,7 +97,14 @@ describe('POST /api/auth/login', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      user: { id: 2, email: 'renter@test.dev', name: 'Test Manager', role: 'RENTER', companyId: 1 },
+      user: {
+        id: 2,
+        email: 'renter@test.dev',
+        name: 'Test Manager',
+        role: 'RENTER',
+        companyId: 1,
+        enabledModules: ['core-rent', 'foreign-workers'],
+      },
     });
 
     const setCookie = res.headers['set-cookie'] as unknown as string[];
@@ -185,6 +192,7 @@ describe('GET /api/auth/me', () => {
         name: 'Test Manager',
         role: 'COMPANY_MANAGER',
         companyId: 1,
+        enabledModules: ['core-rent', 'foreign-workers'],
       },
     });
     expect(res.body.user).not.toHaveProperty('passwordHash');
@@ -370,7 +378,13 @@ describe('authenticate middleware — req.currentUser is DB-authoritative', () =
     const res = await request(ctxApp).get('/_ctx').set('Cookie', [`token=${token}`]);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ userId: 1, role: 'COMPANY_MANAGER', companyId: 1, tokenVersion: 0 });
+    expect(res.body).toEqual({
+      userId: 1,
+      role: 'COMPANY_MANAGER',
+      companyId: 1,
+      tokenVersion: 0,
+      enabledModules: ['core-rent', 'foreign-workers'],
+    });
   });
 
   // Case 7: token companyId is stale; currentUser.companyId comes from the DB.
@@ -395,7 +409,13 @@ describe('authenticate middleware — req.currentUser is DB-authoritative', () =
     const res = await request(ctxApp).get('/_ctx').set('Cookie', [`token=${token}`]);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ userId: 1, role: 'SUPER_ADMIN', companyId: 4, tokenVersion: 0 });
+    expect(res.body).toEqual({
+      userId: 1,
+      role: 'SUPER_ADMIN',
+      companyId: 4,
+      tokenVersion: 0,
+      enabledModules: ['core-rent', 'foreign-workers'],
+    });
   });
 });
 

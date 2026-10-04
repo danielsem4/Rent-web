@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authenticate } from '../../shared/middlewares/authenticate';
 import { authorize } from '../../shared/middlewares/authorize';
+import { requireModule } from '../../shared/middlewares/requireModule';
+import { MODULE_KEYS } from '../../shared/modules/registry';
 import { Role } from '../../shared/constants/roles';
 import { PaymentsRepository } from './payments.repository';
 import { PaymentsService } from './payments.service';
@@ -24,7 +26,7 @@ export function createPaymentsRouter(): Router {
 
   const router = Router();
 
-  router.use(authenticate);
+  router.use(authenticate, requireModule(MODULE_KEYS.CORE_RENT));
 
   const canRead = authorize(Role.COMPANY_MANAGER, Role.COMPANY_WORKER);
 

@@ -1,5 +1,6 @@
 import { AppError } from '../../shared/errors/AppError';
 import type { CurrentUser } from '../../shared/middlewares/authenticate';
+import { tenantId } from '../../shared/utils/tenant';
 import { AUDIT_ACTIONS, RESOURCE_TYPES } from '../../shared/constants/auditActions';
 import type { AuditContext, IAuditLogger } from '../../shared/audit/auditLogger';
 import type {
@@ -40,11 +41,11 @@ export class WorkersService {
   ) {}
 
   async list(currentUser: CurrentUser): Promise<WorkerListItem[]> {
-    return this.repo.listByCompany(currentUser.companyId);
+    return this.repo.listByCompany(tenantId(currentUser));
   }
 
   async get(id: number, currentUser: CurrentUser): Promise<WorkerRecord> {
-    const worker = await this.repo.findByIdInCompany(id, currentUser.companyId);
+    const worker = await this.repo.findByIdInCompany(id, tenantId(currentUser));
     if (!worker) {
       throw new AppError('Worker not found', 404);
     }
@@ -61,28 +62,28 @@ export class WorkersService {
     // property must also have room (capacity is the live worker count).
     const targetProperty = await this.assertPropertyInCompany(
       dto.propertyId,
-      currentUser.companyId,
+      tenantId(currentUser),
     );
     if (targetProperty) {
-      await this.assertNotFull(targetProperty.id, currentUser.companyId, targetProperty.maxCapacity);
+      await this.assertNotFull(targetProperty.id, tenantId(currentUser), targetProperty.maxCapacity);
     }
 
     // Company ownership always comes from the trusted context, never the body.
     const worker = await this.repo.createInCompany({
       ...dto,
-      companyId: currentUser.companyId,
+      companyId: tenantId(currentUser),
     });
 
     // Keep the property's `total` occupancy in step with the live worker count.
     if (dto.propertyId != null) {
-      await this.repo.syncPropertyTotals([dto.propertyId], currentUser.companyId);
+      await this.repo.syncPropertyTotals([dto.propertyId], tenantId(currentUser));
     }
 
     await this.audit.log({
       action: AUDIT_ACTIONS.WORKER_CREATED,
       resourceType: RESOURCE_TYPES.WORKER,
       resourceId: String(worker.id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       // Field NAMES only — never values (passport / insurance numbers must not
       // reach the trail, §18).
@@ -101,7 +102,7 @@ export class WorkersService {
     // current property (to know what it is MOVING from) and a capacity guard.
     let previousPropertyId: number | null | undefined;
     if (dto.propertyId !== undefined) {
-      const existing = await this.repo.findByIdInCompany(id, currentUser.companyId);
+      const existing = await this.repo.findByIdInCompany(id, tenantId(currentUser));
       if (!existing) {
         throw new AppError('Worker not found', 404);
       }
@@ -109,20 +110,20 @@ export class WorkersService {
 
       const targetProperty = await this.assertPropertyInCompany(
         dto.propertyId,
-        currentUser.companyId,
+        tenantId(currentUser),
       );
       // Guard capacity only when moving INTO a different property — re-saving the
       // same assignment must not count the worker against itself.
       if (targetProperty && dto.propertyId !== previousPropertyId) {
         await this.assertNotFull(
           targetProperty.id,
-          currentUser.companyId,
+          tenantId(currentUser),
           targetProperty.maxCapacity,
         );
       }
     }
 
-    const updated = await this.repo.updateInCompany(id, currentUser.companyId, dto);
+    const updated = await this.repo.updateInCompany(id, tenantId(currentUser), dto);
     if (!updated) {
       throw new AppError('Worker not found', 404);
     }
@@ -131,7 +132,7 @@ export class WorkersService {
     if (dto.propertyId !== undefined) {
       await this.repo.syncPropertyTotals(
         [previousPropertyId, dto.propertyId],
-        currentUser.companyId,
+        tenantId(currentUser),
       );
     }
 
@@ -139,7 +140,7 @@ export class WorkersService {
       action: AUDIT_ACTIONS.WORKER_UPDATED,
       resourceType: RESOURCE_TYPES.WORKER,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
       metadata: { fields: Object.keys(dto) },
     });
@@ -149,7 +150,7 @@ export class WorkersService {
   async remove(id: number, currentUser: CurrentUser, context: AuditContext): Promise<void> {
     // Capture the worker's property BEFORE deletion so we can recompute that
     // property's occupancy afterwards (mirrors create/update). Tenant-scoped.
-    const worker = await this.repo.findByIdInCompany(id, currentUser.companyId);
+    const worker = await this.repo.findByIdInCompany(id, tenantId(currentUser));
     if (!worker) {
       throw new AppError('Worker not found', 404);
     }
@@ -157,9 +158,9 @@ export class WorkersService {
     // Delete the worker's stored document FILES first (tenant-scoped — a
     // foreign-company worker matches no rows, so nothing is deleted). The DB
     // document rows then cascade-delete with the worker below.
-    await this.documents.deleteFilesForWorker(id, currentUser.companyId);
+    await this.documents.deleteFilesForWorker(id, tenantId(currentUser));
 
-    const deleted = await this.repo.deleteInCompany(id, currentUser.companyId);
+    const deleted = await this.repo.deleteInCompany(id, tenantId(currentUser));
     if (!deleted) {
       throw new AppError('Worker not found', 404);
     }
@@ -167,14 +168,14 @@ export class WorkersService {
     // Recompute the ex-property's stored `total` from the live worker count now
     // that this row is gone; without it the occupancy chip/bar stays stale.
     if (worker.propertyId != null) {
-      await this.repo.syncPropertyTotals([worker.propertyId], currentUser.companyId);
+      await this.repo.syncPropertyTotals([worker.propertyId], tenantId(currentUser));
     }
 
     await this.audit.log({
       action: AUDIT_ACTIONS.WORKER_DELETED,
       resourceType: RESOURCE_TYPES.WORKER,
       resourceId: String(id),
-      actor: { userId: currentUser.userId, companyId: currentUser.companyId },
+      actor: { userId: currentUser.userId, companyId: tenantId(currentUser) },
       context,
     });
   }
